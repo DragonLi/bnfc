@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, CPP #-}
 {-
     Copyright (C) 2012  Authors:
     Jean-Philippe Bernardy.
@@ -34,13 +34,10 @@ import BNFC.ToCNFCore
 import BNFC.CF hiding (App,Exp)
 import BNFC.Backend.Haskell.HsOpts
 import Control.Monad.RWS
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (Const)
+#endif
 import qualified Data.Map as M
-import Data.List (nub,intercalate,sortBy,sort)
-import Data.Maybe (maybeToList)
-import Data.Function (on)
-import Data.Char (isAlphaNum,ord)
-import Data.String
 import Data.Pair
 import Text.PrettyPrint.HughesPJ hiding (first,(<>))
 
@@ -71,19 +68,18 @@ instance (Pretty k, Pretty v) => Pretty (Set k v) where
   pretty s = sep [pretty k <> " --> " <> pretty v | (k,x) <- M.assocs s, v <- x]
 
 instance Pretty (Either Cat String) where
-  pretty (Left x) = text x
+  pretty (Left x) = text $ show x
   pretty (Right x) = quotes $ text x
 
 instance Pretty String where
   pretty = text
 
-prettyUnitSet units = vcat [prettyExp f <> " : " <> catTag cat <> " --> " <> text cat' | (cat,x) <- M.assocs units, (f,cat') <- x]
+prettyUnitSet units = vcat [prettyExp f <> " : " <> catTag cat <> " --> " <> text (show cat') | (cat,x) <- M.assocs units, (f,cat') <- x]
 
 header opts
        = vcat ["{-# LANGUAGE MagicHash, FlexibleInstances #-}"
               ,"module " <> text (cnfTablesFileM opts) <> " where"
               ,"import GHC.Prim"
-              ,"import GHC.Exts"
               ,"import Control.Applicative hiding (Const)"
               ,"import Algebra.RingUtils"
               ,"import Parsing.Chart ()"
@@ -103,7 +99,7 @@ header opts
               ]
 
 genShowFunction cf = hang "showAst (cat,ast) = case cat of " 6
-       (vcat [catTag (Left cat) <> " -> printTree ((unsafeCoerce# ast)::" <> text cat <> ")"
+       (vcat [catTag (Left cat) <> " -> printTree ((unsafeCoerce# ast)::" <> text (show cat) <> ")"
              | cat <- filter isDataCat $ allCats cf] $$
         "_ -> \"Unprintable category\"")
 
@@ -114,9 +110,9 @@ genCatTags cf = "data CATEGORY = " <> punctuate' "|" (map catTag (allSyms cf)) $
 
 genDesc :: CFG Exp -> CatDescriptions -> Doc
 genDesc cf descs = vcat ["describe " <> catTag s <> " = " <> text (show (descOf s)) | s <- allSyms cf]
-  where descOf :: Either String String -> String
+  where descOf :: Either Cat String -> String
         descOf (Right x) = "token " <> x
-        descOf (Left x) = maybe x render $ M.lookup x descs
+        descOf (Left x) = maybe (show x) render $ M.lookup x descs
 
 genCombTable :: UnitRel Cat -> CFG Exp -> Doc
 genCombTable units cf =
@@ -124,7 +120,7 @@ genCombTable units cf =
   $$ genCombine units cf
   $$ "combine _ _ _ = pure []"
 
-allSyms :: CFG Exp -> [Either String String]
+allSyms :: CFG Exp -> [Either Cat String]
 allSyms cf = map Left (allCats cf  ++ literals cf) ++ map (Right . fst) (cfTokens cf)
 
 
@@ -138,7 +134,7 @@ prettyListFun xs = parens $ sep (map (<> "$") xs) <> "[]"
 
 
 genCombine :: UnitRel Cat -> CFG Exp -> Doc
-genCombine units cf = vcat $ map genEntry $ group' $ map (alt units) (rulesOfCF cf)
+genCombine units cf = vcat $ map genEntry $ group' $ map (alt units) (cfgRules cf)
   where genEntry :: ((RHSEl,RHSEl),[(Cat,Exp)]) -> Doc
         genEntry ((r1,r2),cs) = "combine p " <> catTag r1 <> " " <> catTag r2 <> " = " <> prettyPair (genList <$> splitOptim (Left . fst) cf cs)
         mkLam body = "\\x y -> " <> body
@@ -149,6 +145,7 @@ alt units (Rule f c [r1,r2]) = ((r1,r2),initial:others)
   where initial = (c, f `appMany` args)
         others = [(c', f' `app'` (f `appMany` args)) | (f',c') <- lookupMulti (Left c) units]
         args = map (unsafeCoerce' . Con) $ ["x"|isCat r1]++["y"|isCat r2]
+alt _ _ = error "Only works with binary rules"
 
 
 
@@ -158,11 +155,12 @@ genTokTable units cf = "tokenToCats :: Bool -> Token -> Pair [(CATEGORY,Any)]" $
                        vcat (map (genTokEntry cf units) (cfTokens cf)) $$
                        "tokenToCats p t = error (\"unknown token: \" ++ show t)"
 
-tokInfo cf = ("Char","TC",Con "head"):
-             ("String","TL",Id):("Integer","TI",Con "readInteger"):
-             ("Double","TD",Con "readDouble"):
-             [("Ident","TV",Con "Ident")|hasIdent cf] ++
-             [(t,"T_" <> text t,(Con t)) | t <- tokenNames cf]
+tokInfo cf = (catChar,"TC",Con "head"):
+             (catString,"TL",Id):
+             (catInteger,"TI",Con "readInteger"):
+             (catDouble,"TD",Con "readDouble"):
+             [(catIdent,"TV",Con "Ident")|hasIdent cf] ++
+             [(t,"T_" <> text (show t),(Con (show t))) | (t,_) <- tokenPragmas cf]
 
 genTokCommon cf xs = prettyPair (gen <$> splitOptim fst cf xs)
   where gen ys = prettyListFun [p (ppPair (catTag x,y)) | ((x,y),p) <- ys]
@@ -190,7 +188,7 @@ genNeighborSet ns = vcat
 ------------------------
 -- Test file generation
 
-genTestFile opts cf = render $ vcat
+genTestFile opts _ = render $ vcat
     ["module Main where"
     ,"import " <> text ( alexFileM     opts)
     ,"import " <> text ( cnfTablesFileM opts)

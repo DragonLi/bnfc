@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeSynonymInstances, FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, CPP #-}
 {-
     Copyright (C) 2012  Authors:
     Jean-Philippe Bernardy.
@@ -33,27 +33,26 @@ Yet Presentable Version of the CYK Algorithm", Informatica Didactica
 -}
 
 import BNFC.CF hiding (App,Exp)
-import BNFC.Backend.Haskell.HsOpts
 import Control.Monad.RWS
+#if __GLASGOW_HASKELL__ < 710
 import Control.Applicative hiding (Const)
+#endif
 import qualified Data.Map as M
-import Data.List (nub,intercalate,sortBy,sort)
-import Data.Maybe (maybeToList)
+import Data.List (nub,sortBy,sort)
 import Data.Function (on)
 import Data.Char (isAlphaNum,ord)
-import Data.String
 import Data.Pair
 import Text.PrettyPrint.HughesPJ hiding (first,(<>))
 
 (f *** g) (a,b) = (f a, g b)
 second g = id *** g
 
-onRules f (CFG (exts,rules)) = CFG (exts,f rules)
+onRules f cfg@CFG{..} = cfg { cfgRules = f cfgRules }
 
 toCNF cf0 = (cf1,cf2,units,descriptions,neighbors)
-  where cf01@(CFG (exts01,_)) = funToExp . onRules delInternal $ cf0
-        (rules',descriptions) = toBin (rulesOfCF cf01)
-        cf1 = CFG (exts01,rules')
+  where cf01 = funToExp . onRules delInternal $ cf0
+        (rules',descriptions) = toBin (cfgRules cf01)
+        cf1 = cf01 { cfgRules = rules' }
         cf2 = delNull cf1
         units = unitSet cf2
         neighbors = neighborSet cf2
@@ -65,7 +64,7 @@ toExp f | isCoercion f = Id
         | otherwise = Con f
 
 delInternal = filter (not . isInternalRhs . rhsRule)
-  where isInternalRhs (Left c:_) = c == internalCat
+  where isInternalRhs (Left c:_) = c == InternalCat
         isInternalRhs _ = False
 
 isCat (Right _) = False
@@ -80,8 +79,8 @@ group0 ((a,bs):xs) = (a,bs ++ concatMap snd ys) : group0 zs
 group' :: Ord a => [(a,[b])] -> [(a,[b])]
 group' = group0 . sortBy (compare `on` fst)
 
-catTag :: Either String String -> Doc
-catTag (Left c) = "CAT_" <> text (concatMap escape c)
+catTag :: Either Cat String -> Doc
+catTag (Left c) = "CAT_" <> text (concatMap escape (show c))
 catTag (Right t) = "TOK_" <> text (concatMap escape t)
 
 escape c | isAlphaNum c || c == '_' = [c]
@@ -112,19 +111,16 @@ type CatDescriptions = M.Map Cat Doc
 -- Also writes an explanation of what new categories are.
 toBinRul :: Rul Exp -> RWS () CatDescriptions Int [Rul Exp]
 toBinRul (Rule f cat rhs) | length rhs > 2 = do
-  cat' <- allocateCatName
+  cat' <- liftM Cat allocateCatName
   r' <- toBinRul $ Rule f cat' p
   tell $ M.singleton cat' (int (length p) <> "-prefix of " <> prettyExp f <> " " <> parens (prettyRHS p))
   return $ Rule (Con "($)") cat [Left cat',l]
          : r'
   where l = last rhs
         p = init rhs
-        fun' = case l of
-          Left _ -> Con "($)" -- in this case we have to apply the final argument to the partial result
-          Right _ -> Con "const" -- in this case the 2nd argument must be ignored (it is not present in the result).
 toBinRul r = return [r]
 
-prettyRHS = hcat . punctuate " " . map (either text (quotes . text))
+prettyRHS = hcat . punctuate " " . map (either (text . show) (quotes . text))
 
 ---------------------------
 -- Fixpoint utilities
@@ -139,10 +135,10 @@ fixpointOnGrammar :: (Show k, Show x,Ord k, Ord x) => String -> (Set k x -> Rul 
 fixpointOnGrammar name f cf = case fixn 100 step M.empty of
   Left x -> error $ "Could not find fixpoint of " ++ name ++". Last iteration:\n" ++ show x
   Right x -> x
-  where step curSet = M.unionsWith (∪) (map (f curSet) (rulesOfCF cf))
+  where step curSet = M.unionsWith (∪) (map (f curSet) (cfgRules cf))
 
 fixn :: Eq a => Int -> (a -> a) -> a -> Either a a
-fixn 0 f x = Left x
+fixn 0 _ x = Left x
 fixn n f x = if x' == x then Right x else fixn (n-1) f x'
   where x' = f x
 
@@ -156,12 +152,9 @@ cross [] = [[]]
 cross (x:xs) = [y:ys | y <- x,  ys <- cross xs]
 
 nullRule :: Nullable -> Rul Exp -> (Cat,[Exp])
-nullRule nullset (Rule f c rhs) = (c, map (\xs -> (appMany f xs)) (cross (map nulls rhs)))
-    where nulls (Right tok) = []
+nullRule nullset (Rule f c rhs) = (c, map (appMany f) (cross (map nulls rhs)))
+    where nulls (Right _) = []
           nulls (Left cat) = lookupMulti cat nullset
-
-nullable :: Nullable -> Rul Exp -> Bool
-nullable s = not . null . snd . nullRule s
 
 nullSet :: CFG Exp -> Nullable
 nullSet = fixpointOnGrammar "nullable" (\s r -> uncurry M.singleton (nullRule s r))
@@ -174,7 +167,7 @@ delNullable nullset r@(Rule f cat rhs) = case rhs of
   [r1,r2] -> [r] ++ [Rule (app'  f x) cat [r2] | x <- lk' r1]
                  ++ [Rule (app2 (isCat r1) f x) cat [r1] | x <- lk' r2]
   _ -> error $ "Panic:" ++ show r ++ "should have at most two elements."
-  where lk' (Right tok) = []
+  where lk' (Right _) = []
         lk' (Left cat) = lookupMulti cat nullset
 
 
@@ -197,7 +190,7 @@ unitRule unitSet (Rule f c [r]) = M.singleton r $ (f,c) : [(g `appl` f,c') | (g,
                  Right _ -> app'
 unitRule _ _ = M.empty
 
-isUnitRule (Rule f c [r]) = True
+isUnitRule (Rule _ _ [_]) = True
 isUnitRule _ = False
 
 
@@ -206,23 +199,23 @@ isUnitRule _ = False
 type RHSEl = Either Cat String
 
 isOnLeft, isOnRight :: RHSEl -> Rul f -> Bool
-isOnLeft c (Rule f _ [c',_]) = c == c'
+isOnLeft c (Rule _ _ [c',_]) = c == c'
 isOnLeft _ _ = False
 
-isOnRight c (Rule f _ [_,c']) = c == c'
+isOnRight c (Rule _ _ [_,c']) = c == c'
 isOnRight _ _ = False
 
 isEntryPoint cf el = either (`elem` allEntryPoints cf) (const False) el
 
 occurs :: (RHSEl -> Rul f -> Bool) -> RHSEl -> CFG f -> Bool
-occurs where_ el cf = any (where_ el) (rulesOfCF cf)
+occurs where_ el cf = any (where_ el) (cfgRules cf)
 
 splitLROn :: (a -> RHSEl) -> CFG f -> [a] -> Pair [a]
 splitLROn f cf xs = filt <*> pure xs
   where filt = filter (\c -> occurs isOnLeft  (f c) cf || isEntryPoint cf (f c)) :/:
                filter (\c -> occurs isOnRight (f c) cf)
 
-isSpecial (Left ('@':'@':_)) = True
+isSpecial (Left (Cat ('@':'@':_))) = True
 isSpecial _ = False
 
 optim :: (a -> RHSEl) -> Pair [a] -> Pair [(a,Doc -> Doc)]
@@ -241,14 +234,14 @@ splitOptim f cf xs = optim f $ splitLROn f cf $ xs
 -- Error reporting
 
 -- leftOf C = ⋃ { {X} ∪ leftOf X | C ::= X B ∈ Grammar or C ::= X ∈ Grammar }
-leftRight pos s (Rule f c rhs) = M.singleton c (lkCat x s)
+leftRight pos s (Rule _ c rhs) = M.singleton (show c) (lkCat x s)
   where x = pos rhs
 
-lkCat (Right t) s = [Right t]
-lkCat (Left c) s = Left c:lookupMulti c s
+lkCat (Right t) _ = [Right t]
+lkCat (Left c) s = Left c:lookupMulti (show c) s
 
 -- neighbors A B = ∃ A' B'. P ::= A' B' ∧  A ∈ rightOf A'  ∧  B ∈ leftOf B
-neighborSet cf = map (second (nub . sort)) $ group' [(x',lkCat y leftSet) | Rule _ _ [x,y] <- rulesOfCF cf, x' <- lkCat x rightSet]
+neighborSet cf = map (second (nub . sort)) $ group' [(x',lkCat y leftSet) | Rule _ _ [x,y] <- cfgRules cf, x' <- lkCat x rightSet]
   where leftSet  = fixpointOnGrammar "left set"  (leftRight head) cf
         rightSet = fixpointOnGrammar "right set" (leftRight last) cf
 

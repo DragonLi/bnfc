@@ -38,13 +38,10 @@
 
 module BNFC.Backend.CSharp.CAbstoCSharpVisitSkeleton (cabs2csharpvisitskeleton) where
 
-import BNFC.CF
-import BNFC.Utils ((+++), (++++))
-import BNFC.Backend.Common.NamedVariables
+import BNFC.Utils ((+++))
 import Data.List
 import BNFC.Backend.Common.OOAbstract hiding (basetypes)
 import BNFC.Backend.CSharp.CSharpUtils
-import BNFC.Backend.CSharp.CAbstoCSharpAbs
 
 --Produces .cs file
 cabs2csharpvisitskeleton :: Namespace -> CAbs -> String
@@ -80,7 +77,7 @@ prBasic namespace c = unlinesInline [
   "  }"
   ]
 
-prCon :: Namespace -> (Cat, [CAbsRule]) -> String
+prCon :: Namespace -> (String, [CAbsRule]) -> String
 prCon namespace (c,fs) = unlinesInline [
   "  public class " ++ c ++ "Visitor<R,A> : Abstract" ++ c ++ "Visitor<R,A>",
   "  {",
@@ -99,8 +96,8 @@ prVisit namespace (f,cs) = unlinesInline [
   "    }"
   ]
 
-prVisitArg :: Namespace -> String -> (Cat, Bool, VariableName, PropertyName) -> String
-prVisitArg namespace vname (cat, isPt, var, prop)
+prVisitArg :: Namespace -> String -> (String, Bool, VariableName, PropertyName) -> String
+prVisitArg namespace vname (cat, _, var, prop)
   | cat `elem` (map fst basetypes)            = "      // " ++ vname ++ "." ++ prop
   -- var /= "list_" is a dummy fix to make sure that a category named "List" doesn't get interpreted as a List.
   -- this isn't very good though, and should be fixed somehow.

@@ -40,16 +40,18 @@
 module BNFC.Backend.C.CFtoCSkel (cf2CSkel) where
 
 import BNFC.CF
-import BNFC.Utils			( (+++) )
+import BNFC.Utils                       ( (+++) )
 import BNFC.Backend.Common.NamedVariables
-import Data.List		( isPrefixOf )
-import Data.Char		( toLower, toUpper )
+import Data.Char                ( toLower, toUpper )
+import Data.Either (lefts)
+
+import Text.PrettyPrint
 
 --Produces (.H file, .C file)
 cf2CSkel :: CF -> (String, String)
 cf2CSkel cf = (mkHFile cf groups, mkCFile cf groups)
  where
-    groups = (fixCoercions (ruleGroups cf))
+    groups = fixCoercions (ruleGroups cf)
 
 
 {- **** Header (.H) File Functions **** -}
@@ -74,9 +76,9 @@ mkHFile cf groups = unlines
     "#include \"Absyn.h\"",
     ""
    ]
-  prUserH u = "void visit" ++ u' ++ "(" ++ u ++ " p);"
+  prUserH user = "void visit" ++ u' ++ "(" ++ show user ++ " p);"
     where
-     u' = ((toUpper (head u)) : (map toLower (tail u))) --this is a hack to fix a potential capitalization problem.
+     u' = let u = show user in toUpper (head u) : map toLower (tail u) --this is a hack to fix a potential capitalization problem.
   footer = unlines
    [
     "void visitIdent(Ident i);",
@@ -98,13 +100,13 @@ prDataH (cat, _rules) =
 
 {- **** Implementation (.C) File Functions **** -}
 
---Makes the .C File
+-- | Makes the skeleton's .c File
 mkCFile :: CF -> [(Cat,[Rule])] -> String
 mkCFile cf groups = concat
    [
     header,
-    concatMap (prData user) groups,
-    concatMap prUser user,
+    concatMap prData groups,
+    concatMap (prUser.show) user,
     footer
    ]
   where
@@ -114,6 +116,9 @@ mkCFile cf groups = concat
       "/* This traverses the abstract syntax tree.",
       "   To use, copy Skeleton.h and Skeleton.c to",
       "   new files. */",
+      "",
+      "#include <stdlib.h>",
+      "#include <stdio.h>",
       "",
       "#include \"Skeleton.h\"",
       ""
@@ -126,7 +131,7 @@ mkCFile cf groups = concat
       "}"
      ]
      where
-      u' = ((toUpper (head u)) : (map toLower (tail u))) --this is a hack to fix a potential capitalization problem.
+      u' = toUpper (head u) : map toLower (tail u) --this is a hack to fix a potential capitalization problem.
     footer = unlines
      [
       "void visitIdent(Ident i)",
@@ -153,88 +158,85 @@ mkCFile cf groups = concat
      ]
 
 --Visit functions for a category.
-prData :: [UserDef] -> (Cat, [Rule]) -> String
-prData user (cat, rules) =
-    if isList cat
-      then unlines
-	       [
-		"void visit" ++ cl ++ "("++ cl +++ vname ++ ")",
-		"{",
-		"  while(" ++ vname ++ " != 0)",
-		"  {",
-		"    /* Code For " ++ cl ++ " Goes Here */",
-		"    visit" ++ ecl ++ "(" ++ vname ++ "->" ++ member ++ "_);",
-		"    " ++ vname +++ "=" +++ vname ++ "->" ++ vname ++ "_;",
-		"  }",
-		"}",
-		""
-	       ]
+prData :: (Cat, [Rule]) -> String
+prData (cat, rules)
+  | isList cat = unlines
+               [
+                "void visit" ++ cl ++ "("++ cl +++ vname ++ ")",
+                "{",
+                "  while(" ++ vname +++ " != 0)",
+                "  {",
+                "    /* Code For " ++ cl ++ " Goes Here */",
+                "    visit" ++ ecl ++ "(" ++ vname ++ "->" ++ member ++ "_);",
+                "    " ++ vname +++ "=" +++ vname ++ "->" ++ vname ++ "_;",
+                "  }",
+                "}",
+                ""
+               ]
       -- Not a list:
-      else unlines
-	       [
-		"void visit" ++ cl ++ "(" ++ cl ++ " _p_)",
-		"{",
-		"  switch(_p_->kind)",
-		"  {",
-		concatMap (prPrintRule user) rules,
-		"  default:",
-		"    fprintf(stderr, \"Error: bad kind field when printing " ++ cl ++ "!\\n\");",
-		"    exit(1);",
-		"  }",
-		"}\n"
-	       ]
+  | otherwise = unlines
+               [
+                "void visit" ++ cl ++ "(" ++ cl ++ " _p_)",
+                "{",
+                "  switch(_p_->kind)",
+                "  {",
+                concatMap (render . prPrintRule) rules,
+                "  default:",
+                "    fprintf(stderr, \"Error: bad kind field when printing " ++ cl ++ "!\\n\");",
+                "    exit(1);",
+                "  }",
+                "}\n"
+               ]
     where cl = identCat $ normCat cat
-	  ecl = identCat $ normCatOfList cat
-	  vname = map toLower cl
-	  member = map toLower ecl
+          ecl = identCat $ normCatOfList cat
+          vname = map toLower cl
+          member = map toLower ecl
 
--- Visits all the instance variables of a category.
-prPrintRule :: [UserDef] -> Rule -> String
-prPrintRule user (Rule fun _c cats) | not (isCoercion fun) = unlines
-  [
-   "  case is_" ++ fun ++ ":",
-   "    /* Code for " ++ fun ++ " Goes Here */",
-   cats' ++ "    break;"
-  ]
-   where
-    cats' = concatMap (prCat user fun) (zip (fixOnes (numVars [] cats)) cats)
-prPrintRule _user (Rule _fun _ _) = ""
+-- | Visits all the instance variables of a category.
+-- >>> let ab = Cat "ab"
+-- >>> prPrintRule (Rule "abc" undefined [Left ab, Left ab])
+--   case is_abc:
+--     /* Code for abc Goes Here */
+--     visitab(_p_->u.abc_.ab_1);
+--     visitab(_p_->u.abc_.ab_2);
+--     break;
+-- <BLANKLINE>
+-- >>> let ab = TokenCat "ab"
+-- >>> prPrintRule (Rule "abc" undefined [Left ab])
+--   case is_abc:
+--     /* Code for abc Goes Here */
+--     visitAb(_p_->u.abc_.ab_);
+--     break;
+-- <BLANKLINE>
+-- >>> prPrintRule (Rule "abc" undefined [Left ab, Left ab])
+--   case is_abc:
+--     /* Code for abc Goes Here */
+--     visitAb(_p_->u.abc_.ab_1);
+--     visitAb(_p_->u.abc_.ab_2);
+--     break;
+-- <BLANKLINE>
+prPrintRule :: Rule -> Doc
+prPrintRule (Rule fun _c cats) | not (isCoercion fun) = nest 2 $ vcat
+    [ text $ "case is_" ++ fun ++ ":"
+    , nest 2 (vcat
+        [ "/* Code for " <> text fun <> " Goes Here */"
+        , cats'
+        , "break;\n"
+        ])
+    ]
+  where
+    cats' = vcat $ map (prCat fun) (lefts (numVars cats))
+prPrintRule (Rule _fun _ _) = ""
 
 -- Prints the actual instance-variable visiting.
-prCat :: [UserDef] -> String -> (Either Cat Cat, Either Cat Cat) -> String
-prCat user fnm (c, o) =
-    case c of
-      Right {} -> ""
-      Left nt  ->
-        if isBasic user nt
-	  then "    visit" ++ basicFunName nt ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ");\n"
-	  else "    visit" ++ o' ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ");\n"
-    where v = map toLower $ identCat $ normCat fnm
-	  o' = case o of
-	         Right x -> x
-		 Left x  -> normCat $ identCat x
-
---Just checks if something is a basic or user-defined type.
---This is because you don't -> a basic non-pointer type.
-isBasic :: [UserDef] -> String -> Bool
-isBasic user v =
-  if elem (init v) user'
-    then True
-    else if "integer_" `isPrefixOf` v then True
-    else if "char_" `isPrefixOf` v then True
-    else if "string_" `isPrefixOf` v then True
-    else if "double_" `isPrefixOf` v then True
-    else if "ident_" `isPrefixOf` v then True
-    else False
-  where
-   user' = map (map toLower) user
+prCat :: Fun -> (Cat, Doc) -> Doc
+prCat fnm (cat, vname) =
+      let visitf = "visit" <> if isTokenCat cat
+                       then basicFunName cat
+                       else text (identCat (normCat cat))
+      in visitf <> parens ("_p_->u." <> text v <> "_." <> vname ) <> ";"
+    where v = map toLower $ normFun fnm
 
 --The visit-function name of a basic type
-basicFunName :: String -> String
-basicFunName v =
-    if "integer_" `isPrefixOf` v then "Integer"
-    else if "char_" `isPrefixOf` v then "Char"
-    else if "string_" `isPrefixOf` v then "String"
-    else if "double_" `isPrefixOf` v then "Double"
-    else if "ident_" `isPrefixOf` v then "Ident"
-    else (toUpper (head v)) : (init (tail v)) --User-defined type
+basicFunName :: Cat -> Doc
+basicFunName c = text (toUpper (head (show c)): tail (show c))

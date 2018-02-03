@@ -70,12 +70,15 @@ module BNFC.Backend.Common.NamedVariables where
 import BNFC.CF
 import Data.Char (toLower)
 import Data.List (nub)
+import Text.PrettyPrint
+import Control.Arrow (left, (&&&))
+import Data.Either (lefts)
 
 type IVar = (String, Int)
 --The type of an instance variable
 --and a # unique to that type
 
-type UserDef = String --user-defined types
+type UserDef = Cat --user-defined types
 
 
 --A symbol-mapping environment.
@@ -85,32 +88,48 @@ type SymEnv = [(String, String)]
 -- variables. If a category appears only once, it is given the number 0,
 -- if it appears more than once, its occurrences are numbered from 1. ex:
 --
--- >>> getVars ["A", "B", "A"]
--- [("A", 1), ("B", 0), ("A", 2)]
+-- >>> getVars [Cat "A", Cat "B", Cat "A"]
+-- [("A",1),("B",0),("A",2)]
 --
 getVars :: [Cat] -> [IVar]
 getVars [] = []
 getVars cs = foldl addVar [] (map identCat cs)
- where
-  addVar vs c = addVar' vs 0 c
-  addVar' []  n c = [(c, n)]
-  addVar' (i@(t,x):is) n c =
-    if c == t
-      then if x == 0
-        then (t, 1) : (addVar' is 2 c)
-	else i : (addVar' is (x+1) c)
-      else i : (addVar' is n c)
+  where
+    addVar vs = addVar' vs 0
+    addVar' []  n c = [(c, n)]
+    addVar' (i@(t,x):is) n c =
+      if c == t
+          then if x == 0
+              then (t, 1) : addVar' is 2 c
+              else i : addVar' is (x+1) c
+          else i : addVar' is n c
 
---Given a rule's definition, it goes through and nicely the variables by type.
-numVars :: [(String, Int)] -> [Either String b] -> [Either String b]
-numVars _env [] = []
-numVars env ((Right f) : fs) = (Right f) : (numVars env fs)
-numVars env ((Left f) : fs) =
-   case lookup f' env of
-     Nothing -> (Left f') : (numVars ((f',1):env) fs)
-     Just n -> (Left $ f' ++ (show $ n + 1)) : (numVars ((f',n+1):env) fs)
- where
-   f' = varName (normCat (identCat f))
+-- # Create variable names for rules rhs
+-- This is about creating variable names for the right-hand side of rules.
+-- In particular, if you have a rule like Foo. Bar ::= A B A, you need to
+-- create unique variable names for the two instances of category A
+
+-- | Anotate the right hand side of a rule with variable names
+-- for the non-terminals.
+-- >>> numVars [Left (Cat "A"), Right "+", Left (Cat "B")]
+-- [Left (A,a_),Right "+",Left (B,b_)]
+-- >>> numVars [Left (Cat "A"), Left (Cat "A"), Right ";"]
+-- [Left (A,a_1),Left (A,a_2),Right ";"]
+numVars :: [Either Cat a] -> [Either (Cat, Doc) a]
+numVars cats =
+  -- First, we anotate each Left _ with a variable name (not univque)
+  let withNames = map (left (id &&& (varName . identCat . normCat))) cats
+  -- next, the function f' adds numbers where needed...
+  in f' [] withNames
+  where f' _ [] = []
+        f' env (Right t:xs) = Right t:f' env xs
+        f' env (Left (c,n):xs) =
+            -- we should use n_i as var name
+            let i = maybe 1 (+1) (lookup n env)
+            -- Is there more use of the name u_ ?
+                thereIsMore = n `elem` map snd (lefts xs)
+                vname = text n <> if i > 1 || thereIsMore then int i else empty
+            in Left (c, vname) : f' ((n,i):env) xs
 
 --This makes numbers a little nicer.
 --If there's only one variable of a type we drop the redundant _1 label.
@@ -118,11 +137,11 @@ numVars env ((Left f) : fs) =
 -- is the same.)
 fixOnes :: Eq b => [Either String b] -> [Either String b]
 fixOnes [] = []
-fixOnes ((Right f): fs) = (Right f) : (fixOnes fs)
-fixOnes ((Left f) : fs) =
-  if elem (Left (f ++ "2")) fs
-    then (Left (f ++ "1")) : (fixOnes fs)
-    else (Left f) : (fixOnes fs)
+fixOnes (Right f : fs) = Right f : fixOnes fs
+fixOnes (Left f : fs) =
+  if Left (f ++ "2") `elem` fs
+    then Left (f ++ "1") : fixOnes fs
+    else Left f : fixOnes fs
 
 --This fixes the problem with coercions.
 fixCoercions :: [(Cat, [Rule])] -> [(Cat, [Rule])]
@@ -130,17 +149,22 @@ fixCoercions rs = nub (fixAll rs rs)
  where
   fixCoercion :: Cat -> [(Cat, [Rule])] -> [Rule]
   fixCoercion _ [] = []
-  fixCoercion cat ((c,rules):cats) = if (normCat c) == (normCat cat)
-    then rules ++ (fixCoercion cat cats)
+  fixCoercion cat ((c,rules):cats) = if normCat c == normCat cat
+    then rules ++ fixCoercion cat cats
     else fixCoercion cat cats
   fixAll :: [(Cat, [Rule])] -> [(Cat, [Rule])] -> [(Cat, [Rule])]
   fixAll _ [] = []
-  fixAll top ((cat,rules):cats) = if isCoercion cat
+  fixAll top ((cat,_):cats) = if isCoercion (show cat) -- This is weird: isCoercion is supposed to be applied to functions!!!!
     then fixAll top cats
-    else (normCat cat, fixCoercion cat top) : (fixAll top cats)
+    else (normCat cat, fixCoercion cat top) : fixAll top cats
 
 --A generic variable name for C-like languages.
-varName c = (map toLower c) ++ "_"
+varName c = map toLower c ++ "_"
 
 --this makes var names a little cleaner.
-showNum n = if n == 0 then [] else (show n)
+showNum n = if n == 0 then [] else show n
+
+-- Makes the first letter a lowercase.
+firstLowerCase :: String -> String
+firstLowerCase "" = ""
+firstLowerCase (a:b) = toLower a:b

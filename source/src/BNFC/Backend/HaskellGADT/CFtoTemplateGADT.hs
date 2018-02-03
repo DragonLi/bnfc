@@ -1,6 +1,6 @@
 {-
     BNF Converter: GADT Template Generator
-    Copyright (C) 2004-2005  Author:  Markus Forberg, Björn Bringert
+    Copyright (C) 2004-2005  Author:  Markus Forberg, BjÃ¶rn Bringert
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -18,13 +18,11 @@
 -}
 
 
-module BNFC.Backend.HaskellGADT.CFtoTemplateGADT (
-		    cf2Template
-                    ) where
+module BNFC.Backend.HaskellGADT.CFtoTemplateGADT (cf2Template) where
 
 import BNFC.CF
 import BNFC.Utils((+++))
-import Data.List (delete,groupBy)
+import Data.List (groupBy)
 
 import BNFC.Backend.HaskellGADT.HaskellGADTCommon
 
@@ -61,6 +59,6 @@ catEq :: Constructor -> Constructor -> Bool
 catEq c1 c2 = consCat c1 == consCat c2
 
 prCatTrans :: Cat -> [Constructor] -> [String]
-prCatTrans cat cs = ["trans" ++ cat +++ "::" +++ cat +++ "-> Result",
-		     "trans" ++ cat +++ "t = case t of"]
-		    ++ map prConsCase cs
+prCatTrans cat cs = ["trans" ++ show cat +++ "::" +++ show cat +++ "-> Result"
+                    , "trans" ++ show cat +++ "t = case t of"]
+                    ++ map prConsCase cs

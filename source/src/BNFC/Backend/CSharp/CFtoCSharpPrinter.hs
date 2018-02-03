@@ -41,10 +41,10 @@
 module BNFC.Backend.CSharp.CFtoCSharpPrinter (cf2csharpprinter) where
 
 import BNFC.CF
-import BNFC.Utils ((+++), (++++))
+import BNFC.Utils ((+++))
 import BNFC.Backend.Common.NamedVariables
 import Data.List
-import Data.Char(toLower, toUpper, isSpace)
+import Data.Char(toLower)
 import Data.Maybe
 import BNFC.Backend.CSharp.CSharpUtils
 
@@ -87,6 +87,7 @@ header namespace cf = unlinesInline [
   "    #region Misc rendering functions",
   "    // You may wish to change these:",
   "    private const int BUFFER_INITIAL_CAPACITY = 2000;",
+  "    private const int INDENT_WIDTH = 2;",
   "    private const string LEFT_PARENTHESIS = \"(\";",
   "    private const string RIGHT_PARENTHESIS = \")\";",
   "    private static System.Globalization.NumberFormatInfo InvariantFormatInfo = System.Globalization.NumberFormatInfo.InvariantInfo;",
@@ -102,7 +103,7 @@ header namespace cf = unlinesInline [
   "        buffer.Append(\"\\n\");",
   "        Indent();",
   "        buffer.Append(s);",
-  "        _n_ = _n_ + 2;",
+  "        _n_ = _n_ + INDENT_WIDTH;",
   "        buffer.Append(\"\\n\");",
   "        Indent();",
   "      }",
@@ -116,9 +117,11 @@ header namespace cf = unlinesInline [
   "      }",
   "      else if(s == \"}\")",
   "      {",
-  "        _n_ = _n_ - 2;",
-  "        Backup();",
-  "        Backup();",
+  "        int t;",
+  "        _n_ = _n_ - INDENT_WIDTH;",
+  "        for(t=0; t<INDENT_WIDTH; t++) {",
+  "          Backup();",
+  "        }",
   "        buffer.Append(s);",
   "        buffer.Append(\"\\n\");",
   "        Indent();",
@@ -264,7 +267,7 @@ header namespace cf = unlinesInline [
   "    #endregion"
   ]
 
-prToken :: Namespace -> Cat -> String
+prToken :: Namespace -> String -> String
 prToken namespace token = unlinesInline [
   "    private static void PrintInternal(" ++ identifier namespace token ++ " token, int _i_)",
   "    {",
@@ -274,7 +277,7 @@ prToken namespace token = unlinesInline [
   "    }"
   ]
 
-shToken :: Namespace -> Cat -> String
+shToken :: Namespace -> String -> String
 shToken namespace token = unlinesInline [
   "    private static void ShowInternal(" ++ identifier namespace token ++ " token)",
   "    {",
@@ -358,7 +361,7 @@ prRule namespace maybeElse r@(Rule fun _c cats)
 prRule _nm _ _ = ""
 
 prList :: [UserDef] -> Cat -> [Rule] -> String
-prList user c rules = unlinesInline [
+prList _ _ rules = unlinesInline [
   "      for(int i=0; i < p.Count; i++)",
   "      {",
   "        PrintInternal(p[i], 0);",
@@ -373,7 +376,6 @@ prList user c rules = unlinesInline [
   "      }"
   ]
   where
-    et = typename (normCatOfList c)
     sep = getCons rules
     optsep = if hasOneFunc rules then "" else escapeChars sep
 
@@ -429,7 +431,7 @@ shRule namespace (Rule fun _c cats)
 shRule _nm _ = ""
 
 shList :: [UserDef] -> Cat -> [Rule] -> String
-shList user c _rules = unlinesInline [
+shList _ _ _rules = unlinesInline [
   "      for(int i=0; i < p.Count; i++)",
   "      {",
   "        ShowInternal(p[i]);",
@@ -437,8 +439,6 @@ shList user c _rules = unlinesInline [
   "          Render(\",\");",
   "      }"
   ]
-  where
-    et = typename (normCatOfList c)
 
 shCat fnm c =
   case c of
@@ -452,4 +452,4 @@ shCat fnm c =
       | isInternalVar nt       -> ""
       | otherwise              -> "        ShowInternal(" ++ fnm ++ "." ++ nt ++ ");"
 
-isInternalVar x = x == internalCat ++ "_"
+isInternalVar x = x == show InternalCat ++ "_"

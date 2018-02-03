@@ -42,20 +42,26 @@
 module BNFC.Backend.C.CFtoCPrinter (cf2CPrinter) where
 
 import BNFC.CF
-import BNFC.Utils ((+++), (++++))
+import BNFC.Utils ((+++))
+import BNFC.Backend.Common (renderListSepByPrecedence)
 import BNFC.Backend.Common.NamedVariables
+import BNFC.Backend.Common.StrUtils (renderCharOrString)
 import Data.List
-import Data.Char(toLower, toUpper)
+import Data.Char(toLower)
+import Data.Either (lefts)
+import BNFC.PrettyPrint
 
---Produces (.h file, .c file)
+-- | Produces (.h file, .c file).
+
 cf2CPrinter :: CF -> (String, String)
 cf2CPrinter cf = (mkHFile cf groups, mkCFile cf groups)
  where
-    groups = (fixCoercions (ruleGroupsInternals cf))
+    groups = fixCoercions (ruleGroupsInternals cf)
 
 {- **** Header (.h) File Methods **** -}
 
---An extremely large function to make the Header File
+-- | An extremely large function to make the Header File.
+
 mkHFile :: CF -> [(Cat,[Rule])] -> String
 mkHFile cf groups = unlines
  [
@@ -68,11 +74,11 @@ mkHFile cf groups = unlines
  ]
  where
   eps = allEntryPoints cf
-  prPrints s | normCat s == s = "char* print" ++ s' ++ "(" ++ s' ++ " p);\n"
+  prPrints s | normCat s == s = "char *print" ++ s' ++ "(" ++ s' ++ " p);\n"
     where
       s' = identCat s
   prPrints _ = ""
-  prShows s | normCat s == s = "char* show" ++ s' ++ "(" ++ s' ++ " p);\n"
+  prShows s | normCat s == s = "char *show" ++ s' ++ "(" ++ s' ++ " p);\n"
     where
       s' = identCat s
   prShows _ = ""
@@ -113,7 +119,7 @@ mkHFile cf groups = unlines
     "void shChar(Char c);",
     "void shString(String s);",
     "void shIdent(String s);",
-    "void bufAppendS(const char* s);",
+    "void bufAppendS(const char *s);",
     "void bufAppendC(const char c);",
     "void bufReset(void);",
     "void resizeBuffer(void);",
@@ -121,21 +127,24 @@ mkHFile cf groups = unlines
     "#endif"
    ]
 
---Prints all the required method names and their parameters.
+-- | Prints all the required method names and their parameters.
+
 prPrintDataH :: (Cat, [Rule]) -> String
-prPrintDataH (cat, rules) = concat ["void pp", cl, "(", cl, " p, int i);\n"]
+prPrintDataH (cat, _) = concat ["void pp", cl, "(", cl, " p, int i);\n"]
   where
    cl = identCat (normCat cat)
 
---Prints all the required method names and their parameters.
+-- | Prints all the required method names and their parameters.
+
 prShowDataH :: (Cat, [Rule]) -> String
-prShowDataH (cat, rules) = concat ["void sh", cl, "(", cl, " p);\n"]
+prShowDataH (cat, _) = concat ["void sh", cl, "(", cl, " p);\n"]
   where
    cl = identCat (normCat cat)
 
 {- **** Implementation (.C) File Methods **** -}
 
---This makes the .C file by a similar method.
+-- | This makes the .C file by a similar method.
+
 mkCFile :: CF -> [(Cat,[Rule])] -> String
 mkCFile cf groups = concat
    [
@@ -143,17 +152,16 @@ mkCFile cf groups = concat
     prRender,
     concatMap prPrintFun eps,
     concatMap prShowFun eps,
-    concatMap (prPrintData user) groups,
+    concatMap prPrintData groups,
     printBasics,
     printTokens,
-    concatMap (prShowData user) groups,
+    concatMap prShowData groups,
     showBasics,
     showTokens,
     footer
    ]
   where
     eps = allEntryPoints cf
-    user = fst (unzip (tokenPragmas cf))
     header = unlines
      [
       "/*** BNFC-Generated Pretty Printer and Abstract Syntax Viewer ***/",
@@ -163,8 +171,10 @@ mkCFile cf groups = concat
       "#include <string.h>",
       "#include <stdlib.h>",
       "",
+      "#define INDENT_WIDTH 2",
+      "",
       "int _n_;",
-      "char* buf_;",
+      "char *buf_;",
       "int cur_;",
       "int buf_size;",
       ""
@@ -257,7 +267,7 @@ mkCFile cf groups = concat
      ]
     footer = unlines
      [
-      "void bufAppendS(const char* s)",
+      "void bufAppendS(const char *s)",
       "{",
       "  int len = strlen(s);",
       "  int n;",
@@ -293,7 +303,7 @@ mkCFile cf groups = concat
       "}",
       "void resizeBuffer(void)",
       "{",
-      "  char* temp = (char*) malloc(buf_size);",
+      "  char *temp = (char *) malloc(buf_size);",
       "  if (!temp)",
       "  {",
       "    fprintf(stderr, \"Error: Out of memory while attempting to grow buffer!\\n\");",
@@ -314,11 +324,12 @@ mkCFile cf groups = concat
 
 {- **** Pretty Printer Methods **** -}
 
---An entry point to begin printing
+-- | An entry point to the printer.
+
 prPrintFun :: Cat -> String
 prPrintFun ep | normCat ep == ep = unlines
   [
-   "char* print" ++ ep' ++ "(" ++ ep' ++ " p)",
+   "char *print" ++ ep' ++ "(" ++ ep' ++ " p)",
    "{",
    "  _n_ = 0;",
    "  bufReset();",
@@ -330,15 +341,16 @@ prPrintFun ep | normCat ep == ep = unlines
   ep' = identCat ep
 prPrintFun _ = ""
 
---Generates methods for the Pretty Printer
-prPrintData :: [UserDef] -> (Cat, [Rule]) -> String
-prPrintData user (cat, rules) =
+-- Generates methods for the Pretty Printer
+
+prPrintData :: (Cat, [Rule]) -> String
+prPrintData (cat, rules) = unlines $
  if isList cat
- then unlines
+ then
  [
   "void pp" ++ cl ++ "("++ cl +++ vname ++ ", int i)",
   "{",
-  "  while(" ++ vname ++ "!= 0)",
+  "  while(" ++ vname +++ "!= 0)",
   "  {",
   "    if (" ++ vname ++ "->" ++ vname ++ "_ == 0)",
   "    {",
@@ -349,22 +361,23 @@ prPrintData user (cat, rules) =
   "    else",
   "    {",
   visitMember,
-  "      render" ++ sc ++ "(" ++ sep ++ ");",
+  render (nest 6 (renderListSepByPrecedence "i" renderX
+      (getSeparatorByPrecedence rules))),
   "      " ++ vname +++ "=" +++ vname ++ "->" ++ vname ++ "_;",
   "    }",
   "  }",
   "}",
   ""
  ] --Not a list:
- else unlines
+ else
  [
    "void pp" ++ cl ++ "(" ++ cl ++ " _p_, int _i_)",
    "{",
    "  switch(_p_->kind)",
    "  {",
-   concatMap (prPrintRule user) rules,
+   concatMap prPrintRule rules,
    "  default:",
-   "    fprintf(stderr, \"Error: bad kind field when printing " ++ cat ++ "!\\n\");",
+   "    fprintf(stderr, \"Error: bad kind field when printing " ++ show cat ++ "!\\n\");",
    "    exit(1);",
    "  }",
    "}\n"
@@ -374,16 +387,28 @@ prPrintData user (cat, rules) =
    ecl = identCat (normCatOfList cat)
    vname = map toLower cl
    member = map toLower ecl
-   visitMember = "      pp" ++ ecl ++ "(" ++ vname ++ "->" ++ member ++ "_, 0);"
-   (sc, sep) = if length sep' == 1
-     then ("C", "'" ++ escapeChars sep' ++ "'")
-     else ("S", "\"" ++ escapeChars sep' ++ "\"")
+   visitMember = "      pp" ++ ecl ++ "(" ++ vname ++ "->" ++ member ++ "_, i);"
    sep' = getCons rules
-   optsep = if hasOneFunc rules then "" else ("      render" ++ sc ++ "(" ++ sep ++ ");")
+   optsep = if hasOneFunc rules then "" else "      " ++ render (renderX sep') ++ ";"
 
---Pretty Printer methods for a rule.
-prPrintRule :: [UserDef] -> Rule -> String
-prPrintRule user r@(Rule fun c cats) | not (isCoercion fun) = unlines
+-- | Helper function that call the right c function (renderC or renderS) to
+-- render a literal string.
+--
+-- >>> renderX ","
+-- renderC(',')
+--
+-- >>> renderX "---"
+-- renderS("---")
+
+renderX :: String -> Doc
+renderX sep' = "render" <> char sc <> parens (text sep)
+  where (sc, sep) = renderCharOrString sep'
+
+
+-- | Pretty Printer methods for a rule.
+
+prPrintRule :: Rule -> String
+prPrintRule r@(Rule fun _ cats) | not (isCoercion fun) = unlines
   [
    "  case is_" ++ fun ++ ":",
    lparen,
@@ -394,39 +419,30 @@ prPrintRule user r@(Rule fun c cats) | not (isCoercion fun) = unlines
    where
     p = precRule r
     (lparen, rparen) =
-      ("    if (_i_ > " ++ (show p) ++ ") renderC(_L_PAREN);",
-       "    if (_i_ > " ++ (show p) ++ ") renderC(_R_PAREN);")
-    cats' = (concatMap (prPrintCat user fun) (zip3 (fixOnes (numVars [] cats)) cats (map getPrec cats)))
-    getPrec (Right s) = (0 :: Int)
-    getPrec (Left c) = precCat c
-prPrintRule _ _ = ""
+      ("    if (_i_ > " ++ show p ++ ") renderC(_L_PAREN);",
+       "    if (_i_ > " ++ show p ++ ") renderC(_R_PAREN);")
+    cats' = concatMap (prPrintCat fun) (numVars cats)
+prPrintRule _ = ""
 
---This goes on to recurse to the instance variables.
-prPrintCat :: [UserDef] -> String -> (Either Cat String, Either Cat String, Int) -> String
-prPrintCat user fnm (c,o,p) = case c of
-  (Right t) -> "    render" ++ sc ++ "(" ++ t' ++ ");\n"
-    where
-     (sc,t') = if length t == 1
-       then ("C", "'" ++ (escapeChars t) ++ "'")
-       else ("S", "\"" ++ (escapeChars t) ++ "\"")
-  (Left nt) -> if isBasic user nt
-       then "    pp" ++ (basicFunName nt) ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ", " ++ (show p) ++ ");\n"
-       else if nt == "#_" --Internal category
-         then "    /* Internal Category */\n"
-         else "    pp" ++ o' ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ", " ++ (show p) ++ ");\n"
+-- | This goes on to recurse to the instance variables.
+
+prPrintCat :: String -> Either (Cat, Doc) String -> String
+prPrintCat fnm (c) = case c of
+  Right t -> "    " ++ render (renderX t) ++ ";\n"
+  Left (cat, nt) | isTokenCat cat -> "    pp" ++ basicFunName (render nt) ++ "(_p_->u." ++ v ++ "_." ++ render nt ++ ", " ++ show (precCat cat) ++ ");\n"
+  Left (InternalCat, _) -> "    /* Internal Category */\n"
+  Left (cat, nt) -> "    pp" ++ identCat (normCat cat) ++ "(_p_->u." ++ v ++ "_." ++ render nt ++ ", " ++ show (precCat cat) ++ ");\n"
  where
-  v = map toLower (identCat (normCat fnm))
-  o' = case o of
-    Right x -> x
-    Left x -> normCat (identCat x)
+  v = map toLower (normFun fnm)
 
 {- **** Abstract Syntax Tree Printer **** -}
 
---An entry point to begin printing
+-- | An entry point to the printer.
+
 prShowFun :: Cat -> String
 prShowFun ep | normCat ep == ep = unlines
   [
-   "char* show" ++ ep' ++ "(" ++ ep' ++ " p)",
+   "char *show" ++ ep' ++ "(" ++ ep' ++ " p)",
    "{",
    "  _n_ = 0;",
    "  bufReset();",
@@ -438,15 +454,17 @@ prShowFun ep | normCat ep == ep = unlines
   ep' = identCat ep
 prShowFun _ = ""
 
---This prints the functions for Abstract Syntax tree printing.
-prShowData :: [UserDef] -> (Cat, [Rule]) -> String
-prShowData user (cat, rules) =
+-- | This prints the functions for Abstract Syntax tree printing.
+
+prShowData :: (Cat, [Rule]) -> String
+prShowData (cat, rules) = unlines $
  if isList cat
- then unlines
+ then
  [
   "void sh" ++ cl ++ "("++ cl +++ vname ++ ")",
   "{",
-  "  while(" ++ vname ++ "!= 0)",
+  "  bufAppendC('[');",
+  "  while(" ++ vname +++ "!= 0)",
   "  {",
   "    if (" ++ vname ++ "->" ++ vname ++ "_)",
   "    {",
@@ -460,18 +478,19 @@ prShowData user (cat, rules) =
   "      " ++ vname ++ " = 0;",
   "    }",
   "  }",
+  "  bufAppendC(']');",
   "}",
   ""
- ] --Not a list:
- else unlines
+ ] -- Not a list:
+ else
  [
    "void sh" ++ cl ++ "(" ++ cl ++ " _p_)",
    "{",
    "  switch(_p_->kind)",
    "  {",
-   concatMap (prShowRule user) rules,
+   concatMap prShowRule rules,
    "  default:",
-   "    fprintf(stderr, \"Error: bad kind field when showing " ++ cat ++ "!\\n\");",
+   "    fprintf(stderr, \"Error: bad kind field when showing " ++ show cat ++ "!\\n\");",
    "    exit(1);",
    "  }",
    "}\n"
@@ -483,17 +502,18 @@ prShowData user (cat, rules) =
    member = map toLower ecl
    visitMember = "      sh" ++ ecl ++ "(" ++ vname ++ "->" ++ member ++ "_);"
 
---Pretty Printer methods for a rule.
-prShowRule :: [UserDef] -> Rule -> String
-prShowRule user r@(Rule fun c cats) | not (isCoercion fun) = unlines
+-- | Pretty Printer methods for a rule.
+
+prShowRule :: Rule -> String
+prShowRule (Rule fun _ cats) | not (isCoercion fun) = unlines
   [
    "  case is_" ++ fun ++ ":",
-   lparen,
+   "  " ++ lparen,
    "    bufAppendS(\"" ++ fun ++ "\");\n",
-   optspace,
+   "  " ++ optspace,
    cats',
-   rparen,
-   "    break;\n"
+   "  " ++ rparen,
+   "    break;"
   ]
    where
     (optspace, lparen, rparen) = if allTerms cats
@@ -501,79 +521,43 @@ prShowRule user r@(Rule fun c cats) | not (isCoercion fun) = unlines
       else ("  bufAppendC(' ');\n", "  bufAppendC('(');\n","  bufAppendC(')');\n")
     cats' = if allTerms cats
         then ""
-    	else concat (insertSpaces (map (prShowCat user fun) (zip (fixOnes (numVars [] cats)) cats)))
+        else concat (insertSpaces (map (prShowCat fun) (lefts $ numVars cats)))
     insertSpaces [] = []
     insertSpaces (x:[]) = [x]
     insertSpaces (x:xs) = if x == ""
       then insertSpaces xs
-      else (x : ["  bufAppendC(' ');\n"]) ++ (insertSpaces xs)
+      else x : "  bufAppendC(' ');\n" : insertSpaces xs
     allTerms [] = True
-    allTerms ((Left z):zs) = False
-    allTerms (z:zs) = allTerms zs
-prShowRule _ _ = ""
+    allTerms (Left _:_) = False
+    allTerms (_:zs) = allTerms zs
+prShowRule _ = ""
 
---This goes on to recurse to the instance variables.
-prShowCat :: [UserDef] -> String -> (Either Cat String, Either Cat String) -> String
-prShowCat user fnm (c,o) = case c of
-  (Right t) -> ""
-  (Left nt) -> if isBasic user nt
-       then "    sh" ++ (basicFunName nt) ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ");\n"
-       else if nt == "#_" --Internal category
-         then "    /* Internal Category */\n"
-         else if ((normCat nt) /= nt)
-          then "    sh" ++ o' ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ");\n"
-          else concat
-          [
-	   "    bufAppendC('[');\n",
-           "    sh" ++ o' ++ "(_p_->u." ++ v ++ "_." ++ nt ++ ");\n",
-	   "    bufAppendC(']');\n"
-          ]
- where
-  v = map toLower (identCat (normCat fnm))
-  o' = case o of
-    Right x -> x
-    Left x -> normCat (identCat x)
+-- | This goes on to recurse to the instance variables.
+
+prShowCat :: Fun -> (Cat, Doc) -> String
+prShowCat fnm c = case c of
+    (cat,nt) | isTokenCat cat ->
+        "    sh" ++ basicFunName (render nt) ++ "(_p_->u." ++ v ++ "_." ++ render nt ++ ");\n"
+    (InternalCat, _) -> "    /* Internal Category */\n"
+    (cat,nt) ->
+        "    sh" ++ identCat (normCat cat) ++ "(_p_->u." ++ v ++ "_." ++ render nt ++ ");\n"
+  where v = map toLower (normFun fnm)
 
 {- **** Helper Functions Section **** -}
 
+-- | The visit-function name of a basic type.
 
---Just checks if something is a basic or user-defined type.
---This is because you don't -> a basic non-pointer type.
-isBasic :: [UserDef] -> String -> Bool
-isBasic user v =
-  if elem (init v) user'
-    then True
-    else if "integer_" `isPrefixOf` v then True
-    else if "char_" `isPrefixOf` v then True
-    else if "string_" `isPrefixOf` v then True
-    else if "double_" `isPrefixOf` v then True
-    else if "ident_" `isPrefixOf` v then True
-    else False
-  where
-   user' = map (map toLower) user
-
---The visit-function name of a basic type
 basicFunName :: String -> String
-basicFunName v =
-    if "integer_" `isPrefixOf` v then "Integer"
-    else if "char_" `isPrefixOf` v then "Char"
-    else if "string_" `isPrefixOf` v then "String"
-    else if "double_" `isPrefixOf` v then "Double"
-    else if "ident_" `isPrefixOf` v then "Ident"
-    else "Ident" --User-defined type
+basicFunName v
+  | "integer_" `isPrefixOf` v = "Integer"
+  | "char_" `isPrefixOf` v    = "Char"
+  | "string_" `isPrefixOf` v  = "String"
+  | "double_" `isPrefixOf` v  = "Double"
+  | "ident_" `isPrefixOf` v   = "Ident"
+  | otherwise = "Ident" --User-defined type
 
---Just sets the coercion level for parentheses in the Pretty Printer.
-setI :: Int -> String
-setI n = "_i_ = " ++ (show n) ++ "; "
+-- | An extremely simple @renderC@ for terminals.
 
---Helper function that escapes characters in strings
-escapeChars :: String -> String
-escapeChars [] = []
-escapeChars ('\\':xs) = '\\' : ('\\' : (escapeChars xs))
-escapeChars ('\"':xs) = '\\' : ('\"' : (escapeChars xs))
-escapeChars (x:xs) = x : (escapeChars xs)
-
---An extremely simple renderCer for terminals.
 prRender :: String
 prRender = unlines
   [
@@ -585,7 +569,7 @@ prRender = unlines
       "     bufAppendC('\\n');",
       "     indent();",
       "     bufAppendC(c);",
-      "     _n_ = _n_ + 2;",
+      "     _n_ = _n_ + INDENT_WIDTH;",
       "     bufAppendC('\\n');",
       "     indent();",
       "  }",
@@ -595,13 +579,14 @@ prRender = unlines
       "  {",
       "     backup();",
       "     bufAppendC(c);",
-      "     bufAppendC(' ');",
       "  }",
       "  else if (c == '}')",
       "  {",
-      "     _n_ = _n_ - 2;",
-      "     backup();",
-      "     backup();",
+      "     int t;",
+      "     _n_ = _n_ - INDENT_WIDTH;",
+      "     for(t=0; t<INDENT_WIDTH; t++) {",
+      "       backup();",
+      "     }",
       "     bufAppendC(c);",
       "     bufAppendC('\\n\');",
       "     indent();",
@@ -622,6 +607,7 @@ prRender = unlines
       "  else if (c == 0) return;",
       "  else",
       "  {",
+      "     bufAppendC(' ');",
       "     bufAppendC(c);",
       "     bufAppendC(' ');",
       "  }",

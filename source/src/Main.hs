@@ -28,38 +28,27 @@
 
 module Main where
 
--- import Utils
-import BNFC.CF (cfp2cf)
 import BNFC.Backend.Base hiding (Backend)
-import BNFC.Backend.Latex
+import BNFC.Backend.C
+import BNFC.Backend.CPP.NoSTL
+import BNFC.Backend.CPP.STL
+import BNFC.Backend.CSharp
 import BNFC.Backend.Haskell
 import BNFC.Backend.HaskellGADT
 import BNFC.Backend.HaskellProfile
 import BNFC.Backend.Java
-import BNFC.Backend.CPP.NoSTL
-import BNFC.Backend.CSharp
-import BNFC.Backend.CPP.STL
-import BNFC.Backend.C
+import BNFC.Backend.Latex
 import BNFC.Backend.OCaml
-import BNFC.Backend.XML
-import BNFC.Utils
+import BNFC.Backend.Pygments
 import BNFC.GetCF
-
-import BNFC.MultiView (preprocessMCF, mkTestMulti, mkMakefileMulti)
-
-import System.Environment (getEnv,getArgs     )
-import System.Exit (exitFailure,exitSuccess)
-import System.Cmd (system)
-import Data.Char
-import Data.List (elemIndex, foldl')
-import Control.Monad (when,unless)
-import Paths_BNFC ( version )
-import Data.Version ( showVersion )
-
-import System.FilePath
-import System.IO (stderr, hPutStrLn,hPutStr)
 import BNFC.Options hiding (make)
-import System.Console.GetOpt
+
+import Paths_BNFC ( version )
+
+import Data.Version ( showVersion )
+import System.Environment (getArgs)
+import System.Exit (exitFailure, exitSuccess)
+import System.IO (stderr, hPutStrLn)
 
 -- Print an error message and a (short) usage help and exit
 printUsageErrors :: [String] -> IO ()
@@ -75,17 +64,23 @@ main = do
     UsageError e -> printUsageErrors [e]
     Help    -> putStrLn help >> exitSuccess
     Version ->  putStrLn (showVersion version) >> exitSuccess
-    Target TargetProfile options file ->
-      readFile file >>= parseCFP options TargetProfile >>= makeHaskellProfile options
-    Target target options file ->
-      readFile file >>= parseCF options target >>= make target options
-  where make TargetC            opts cf = makeC opts cf
-        make TargetCpp          opts cf = makeCppStl opts cf
-        make TargetCppNoStl     opts cf = makeCppNoStl opts cf
-        make TargetCSharp       opts cf = makeCSharp opts cf
-        make TargetHaskell      opts cf = writeFiles "." $ makeHaskell opts cf
-        make TargetHaskellGadt  opts cf = makeHaskellGadt opts cf
-        make TargetLatex        opts cf = writeFiles "." $ makeLatex opts cf
-        make TargetJava         opts cf = makeJava opts cf
-        make TargetOCaml        opts cf = makeOCaml opts cf
-        make TargetProfile      opts cf = fail "" opts cf
+    Target options file | target options == TargetProfile ->
+      readFile file >>= parseCFP options TargetProfile
+                    >>= writeFiles (outDir options) . makeHaskellProfile options
+    Target options file ->
+      readFile file >>= parseCF options (target options) >>= make (target options) options
+  where
+    make t opts cf = writeFiles (outDir opts) $ (maketarget t) opts cf
+
+maketarget t = case t of
+    TargetC            -> makeC
+    TargetCpp          -> makeCppStl
+    TargetCppNoStl     -> makeCppNoStl
+    TargetCSharp       -> makeCSharp
+    TargetHaskell      -> makeHaskell
+    TargetHaskellGadt  -> makeHaskellGadt
+    TargetLatex        -> makeLatex
+    TargetJava         -> makeJava
+    TargetOCaml        -> makeOCaml
+    TargetProfile      -> error "Not implemented"
+    TargetPygments     -> makePygments

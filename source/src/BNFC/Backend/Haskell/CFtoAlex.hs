@@ -25,7 +25,7 @@ import BNFC.Backend.Haskell.RegToAlex
 import Data.List
 
 cf2alex :: String -> String -> CF -> String
-cf2alex name errMod cf = unlines $ concat $ intersperse [""] [
+cf2alex name errMod cf = unlines $ intercalate [""] [
   prelude name errMod,
   cMacros,
   rMacros cf,
@@ -74,7 +74,7 @@ cMacros = [
 
 rMacros :: CF -> [String]
 rMacros cf =
-  let symbs = symbols cf
+  let symbs = cfgSymbols cf
   in
   (if null symbs then [] else [
    "{ %s =    -- reserved words consisting of special symbols",
@@ -84,23 +84,23 @@ rMacros cf =
  where
   mkEsc = unwords . map ( f . (:[]))
   f s = if all isSpec s then '^':s else s
-  isSpec = flip elem "$+-*=<>[](){}!?.,;:^~|&%#/\\$_@\""
+  isSpec = flip elem ("$+-*=<>[](){}!?.,;:^~|&%#/\\$_@\"" :: String)
 
 restOfAlex :: CF -> [String]
 restOfAlex cf = [
   "\"tokens_lx\"/\"tokens_acts\":-",
   lexComments (comments cf),
   "<>         ::= ^w+",
-  pTSpec (symbols cf,[]), -- modif Markus 12/02 - 2002
+  pTSpec (cfgSymbols cf,[]), -- modif Markus 12/02 - 2002
 
   userDefTokenTypes,
   identAndRes,
 
-  ifC "String" "<string>  ::= ^\" ([^u # [^\"^\\^n]] | (^\\ (^\" | ^\\ | ^' | n | t)))* ^\"" ++
+  ifC catString "<string>  ::= ^\" ([^u # [^\"^\\^n]] | (^\\ (^\" | ^\\ | ^' | n | t)))* ^\"" ++
                   "%{ string p = PT p . TL . unescapeInitTail %}",
-  ifC "Char"   "<char>    ::= ^\' (^u # [^\'^\\] | ^\\ [^\\ ^\' n t]) ^'  %{ char   p = PT p . TC    %}",
-  ifC "Integer" "<int>    ::= ^d+      %{ int    p = PT p . TI    %}",
-  ifC "Double"
+  ifC catChar   "<char>    ::= ^\' (^u # [^\'^\\] | ^\\ [^\\ ^\' n t]) ^'  %{ char   p = PT p . TC    %}",
+  ifC catInteger "<int>    ::= ^d+      %{ int    p = PT p . TI    %}",
+  ifC catDouble
       "<double>   ::= ^d+ ^. ^d+ (e (^-)? ^d+)? %{ double  p = PT p . TD %}",
   "",
   "%{ ",
@@ -148,7 +148,7 @@ restOfAlex cf = [
   "eitherResIdent :: (String -> Tok) -> String -> Tok",
   "eitherResIdent tv s = if isResWord s then (TS s) else (tv s) where",
   "  isResWord s = isInTree s $",
-  "    " ++ (show $ sorted2tree $ sort resws),
+  "    " ++ show (sorted2tree $ sort resws),
   "",
   "data BTree = N | B String BTree BTree deriving (Show)",
   "",
@@ -175,38 +175,34 @@ restOfAlex cf = [
    ifC cat s = if isUsedCat cf cat then s else ""
    lexComments ([],[])           = []
    lexComments (xs,s1:ys) = "<>         ::= " ++ ('^':intersperse '^' s1) ++ " [.]* ^n\n" ++ lexComments (xs,ys)
-   lexComments (([l1,l2],[r1,r2]):xs,[]) = concat $
-					[
-					"<>         ::= ",
-					('^':l1:' ':'^':l2:" ([^u # ^"),
-					(l2:"] | ^"),
-					(r1:" [^u # ^"),
-					(r2:"])* (^"),
-					(r1:")+ ^"),
-					(r2:"\n"),
-					lexComments (xs,[])
-					]
-   lexComments ((_:xs),[]) = lexComments (xs,[])
+   lexComments (([l1,l2],[r1,r2]):xs,[]) = concat
+                                        [
+                                        "<>         ::= ",
+                                        '^':l1:' ':'^':l2:" ([^u # ^",
+                                        l2:"] | ^",
+                                        r1:" [^u # ^",
+                                        r2:"])* (^",
+                                        r1:")+ ^",
+                                        r2:"\n",
+                                        lexComments (xs,[])
+                                        ]
+   lexComments (_ : xs, []) = lexComments (xs,[])
 ---   lexComments (xs,(_:ys)) = lexComments (xs,ys)
    pTSpec ([],[]) = ""
    pTSpec xp =
     "<pTSpec>   ::= " ++ aux xp ++ "%{ pTSpec p = PT p . TS    %}"
-   aux (xs,[]) = " %s "
-   aux ([],ys) = " %r "
-   aux (xs,ys) = " %s | %r "
-   resWs =
-     "[" ++ concat (intersperse "," [show s | s <- resws]) ++ "]"
-     --- show s can be strange for isolatin1 characters
-     --- precompile to search tree!
+   aux (_,[]) = " %s "
+   aux ([],_) = " %r "
+   aux (_,_) = " %s | %r "
 
-   userDefTokenTypes = unlines $
-     ["<mk_" ++ name ++ "> ::= " ++ printRegAlex exp ++
-      "%{ mk_" ++ name ++ " p = PT p . eitherResIdent T_"  ++ name ++ " %}"
+   userDefTokenTypes = unlines
+     ["<mk_" ++ show name ++ "> ::= " ++ printRegAlex exp ++
+      "%{ mk_" ++ show name ++ " p = PT p . eitherResIdent T_"  ++ show name ++ " %}"
                                         | (name,exp) <- tokenPragmas cf]
-   userDefTokenConstrs = unlines $
-     [" | T_" ++ name ++ " String" | (name,_) <- tokenPragmas cf]
-   userDefTokenPrint = unlines $
-     ["  PT _ (T_" ++ name ++ " s) -> s" | (name,_) <- tokenPragmas cf]
+   userDefTokenConstrs = unlines
+     [" | T_" ++ name ++ " String" | name <- tokenNames cf]
+   userDefTokenPrint = unlines
+     ["  PT _ (T_" ++ name ++ " s) -> s" | name <- tokenNames cf]
 
    identAndRes = --This has to be there for Reserved Words. Michael
      "<ident>   ::= ^l ^i*   %{ ident  p = PT p . eitherResIdent TV %}"
@@ -216,15 +212,7 @@ restOfAlex cf = [
 
 data BTree = N | B String BTree BTree deriving (Show)
 
-isInTree :: String -> BTree -> Bool
-isInTree x tree = case tree of
- N -> False
- B a left right
-   | x < a  -> isInTree x left
-   | x > a  -> isInTree x right
-   | x == a -> True
-
 sorted2tree :: [String] -> BTree
 sorted2tree [] = N
 sorted2tree xs = B x (sorted2tree t1) (sorted2tree t2) where
-  (t1,(x:t2)) = splitAt (length xs `div` 2) xs
+  (t1, x : t2) = splitAt (length xs `div` 2) xs

@@ -1,4 +1,13 @@
 language: haskell
+ghc:
+  - 7.6.3
+  - 7.8.4
+  - 7.10.3
+  - 8.0
+  - 8.2
+env:
+  - PACKAGEDIR="source"
+  - PACKAGEDIR="testing"
 script:
     - cabal install
     - cabal configure --enable-tests && cabal build && cabal test
@@ -7,5 +16,6 @@ before_install:
   - sudo apt-get install jlex cup openjdk-6-jdk
   - sudo apt-get install g++
   - sudo apt-get install texlive-latex-base
-  - cd source
-env: CLASSPATH=".:/usr/share/java/JLex.jar:/usr/share/java/cup.jar"
+  - sudo apt-get install alex happy
+  - export CLASSPATH=".:/usr/share/java/JLex.jar:/usr/share/java/cup.jar"
+  - cd ${PACKAGEDIR}

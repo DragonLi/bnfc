@@ -22,22 +22,23 @@
 
 module BNFC.Backend.OCaml.CFtoOCamlLex (cf2ocamllex) where
 
+import Control.Arrow ((&&&))
 import Data.List
 import Data.Char
+import Text.PrettyPrint hiding (render)
+import qualified Text.PrettyPrint as PP
 
 import BNFC.CF
 import AbsBNF
 import BNFC.Backend.OCaml.CFtoOCamlYacc (terminal)
-import BNFC.Utils ((+++))
+import BNFC.Utils ((+++), cstring, cchar)
 
 cf2ocamllex :: String -> String -> CF -> String
-cf2ocamllex name parserMod cf =
-  unlines $ concat $ intersperse [""] [
+cf2ocamllex _ parserMod cf =
+  unlines $ intercalate [""] [
     header parserMod cf,
     definitions cf,
-    let r = rules cf in case r of
-                [] -> []
-                x:xs -> ("rule" +++ x) : map ("and" +++) xs
+    [PP.render (rules cf)]
    ]
 
 header :: String -> CF -> [String]
@@ -63,11 +64,9 @@ header parserMod cf = [
   "        if i < 0 then l else exp (i - 1) (s.[i] :: l) in",
   "      exp (String.length s - 1) []",
   "  in let implode (l : char list) : string =",
-  "      let res = String.create (List.length l) in",
-  "      let rec imp i = function",
-  "      | [] -> res",
-  "      | c :: l -> res.[i] <- c; imp (i + 1) l in",
-  "      imp 0 l",
+  "      let res = Buffer.create (List.length l) in",
+  "      List.iter (Buffer.add_char res) l;",
+  "      Buffer.contents res",
   "  in implode (unesc (List.tl (explode s)))",
   "",
   "let incr_lineno (lexbuf:Lexing.lexbuf) : unit =",
@@ -81,9 +80,9 @@ header parserMod cf = [
 
 -- | set up hashtables for reserved symbols and words
 hashtables :: CF -> String
-hashtables cf = ht "symbol_table" (symbols cf )  ++ "\n" ++
+hashtables cf = ht "symbol_table" (cfgSymbols cf )  ++ "\n" ++
                 ht "resword_table" (reservedWords cf)
-    where ht table syms | length syms == 0 = ""
+    where ht _ syms | null syms = ""
           ht table syms = unlines [
                 "let" +++ table +++ "= Hashtbl.create " ++ show (length syms),
                 "let _ = List.iter (fun (kwd, tok) -> Hashtbl.add" +++ table
@@ -115,7 +114,7 @@ cMacros = [
 
 rMacros :: CF -> [String]
 rMacros cf =
-  let symbs = symbols cf
+  let symbs = cfgSymbols cf
   in
   (if null symbs then [] else [
    "let rsyms =    (* reserved words consisting of special symbols *)",
@@ -132,47 +131,100 @@ uMacros cf = ["let " ++ name ++ " = " ++ rep | (name, rep, _) <- userTokens cf]
 -- returns the tuple of (reg_name, reg_representation, token_name)
 userTokens :: CF -> [(String, String, String)]
 userTokens cf =
-  let regName = map toLower in
-  [(regName name, printRegOCaml reg, name) | (name, reg) <- tokenPragmas cf]
+  let regName = map toLower . show in
+  [(regName name, printRegOCaml reg, show name) | (name, reg) <- tokenPragmas cf]
       
 
-rules :: CF -> [String]
-rules cf = oneRule $ concat [
-        lexComments (comments cf),
-        ["l i* " ++ case reservedWords cf of
-            [] -> "{let id = lexeme lexbuf in TOK_Ident id}"
-            _ -> "{let id = lexeme lexbuf in try Hashtbl.find resword_table id with Not_found -> TOK_Ident id}"
-        ],
-        if null (symbols cf) then []
-            else ["rsyms {let id = lexeme lexbuf in try Hashtbl.find symbol_table id with Not_found -> failwith (\"internal lexer error: reserved symbol \" ^ id ^ \" not found in hashtable\")}"],
-        ["d+ {let i = lexeme lexbuf in TOK_Integer (int_of_string i)}"],
-        ["d+ '.' d+ ('e' ('-')? d+)? {let f = lexeme lexbuf in TOK_Double (float_of_string f)}"],
-        ["'\\\"' ((u # ['\\\"' '\\\\' '\\n']) | ('\\\\' ('\\\"' | '\\\\' | '\\\'' | 'n' | 't')))* '\\\"' {let s = lexeme lexbuf in TOK_String (unescapeInitTail s)}"],
-        userTokenRules,
-        ["[' ' '\\t'] {token lexbuf}"],
-        ["'\\n' {incr_lineno lexbuf; token lexbuf}"],
-        ["eof { TOK_EOF }"]
-    ]
-    where
-        oneRule xs = ["token = \n    parse " ++ concat (intersperse "\n        | " xs)]
-        lexComments ([],[]) = []
-        lexComments (xs,s1:ys) = ('\"' : s1 ++ "\"" ++
-            " (_ # '\\n')*  { token lexbuf } (* Toss single line comments *)") :
-            lexComments (xs, ys)
-        lexComments (([l1,l2],[r1,r2]):xs,[]) = (concat $
-            [
-            ('\"':l1:l2:"\" ((u # ['"), -- FIXME quotes or escape?
-            (l2:"']) | '"),
-            (r1:"' (u # ['"),
-            (r2:"']))* ('"),
-            (r1:"')+ '"),
-            (r2:"' { token lexbuf } \n")
-            ]) :
-            lexComments (xs, [])
-        lexComments ((_:xs),[]) = lexComments (xs,[])
-        userTokenRules = [ name ++ " as x { TOK_" ++ token ++ " x }" | (name, _, token) <- userTokens cf]
-            
 
+-- | Make OCamlLex rule
+-- >>> mkRule "token" [("REGEX1","ACTION1"),("REGEX2","ACTION2"),("...","...")]
+-- rule token =
+--   parse REGEX1 {ACTION1}
+--       | REGEX2 {ACTION2}
+--       | ... {...}
+--
+-- If no regex are given, we dont create a lexer rule:
+-- >>> mkRule "empty" []
+-- <BLANKLINE>
+mkRule :: Doc -> [(Doc,Doc)] -> Doc
+mkRule _ [] = empty
+mkRule entrypoint (r1:rn) = vcat
+    [ "rule" <+> entrypoint <+> "="
+    , nest 2 $ hang "parse" 4 $ vcat
+        (nest 2 (mkOne r1):map (("|" <+>) . mkOne) rn) ]
+  where
+    mkOne (regex, action) = regex <+> braces action
+
+-- | Create regex for single line comments
+-- >>> mkRegexSingleLineComment "--"
+-- "--" (_ # '\n')*
+-- >>> mkRegexSingleLineComment "\""
+-- "\"" (_ # '\n')*
+mkRegexSingleLineComment :: String -> Doc
+mkRegexSingleLineComment s = cstring s <+> "(_ # '\\n')*"
+
+-- | Create regex for multiline comments
+-- >>> mkRegexMultilineComment "<!--" "-->"
+-- "<!--" ((u # ['-']) | '-' (u # ['-']) | "--" (u # ['>']))* '-'* "-->"
+--
+-- >>> mkRegexMultilineComment "\"'" "'\""
+-- "\"'" ((u # ['\'']) | '\'' (u # ['"']))* '\''* "'\""
+mkRegexMultilineComment :: String -> String -> Doc
+mkRegexMultilineComment b e =
+  lit b
+  <+> parens ( hsep $ intersperse "|" subregexs ) <> "*"
+  <+> lit [head e] <> "*"
+  <+> lit e
+  where
+    lit :: String -> Doc
+    lit "" = empty
+    lit [c] = cchar c
+    lit s = cstring s
+    prefix = map (init &&& last) (drop 1 (inits e))
+    subregexs = [ lit ss <+> parens ("u #" <+> brackets (lit [s])) | (ss,s) <- prefix]
+
+-- | Uses the function from above to make a lexer rule from the CF grammar
+rules :: CF -> Doc
+rules cf = mkRule "token" $
+    -- comments
+    [ (mkRegexSingleLineComment s, "token lexbuf") | s <- singleLineC ]
+    ++
+    [ (mkRegexMultilineComment b e, "token lexbuf") | (b,e) <- multilineC]
+    ++
+    -- reserved keywords
+    [ ( "rsyms"
+      , "let id = lexeme lexbuf in try Hashtbl.find symbol_table id with Not_found -> failwith (\"internal lexer error: reserved symbol \" ^ id ^ \" not found in hashtable\")" )
+      | not (null (cfgSymbols cf))]
+    ++
+    -- user tokens
+    [ (text n , tokenAction (text t)) | (n,_,t) <- userTokens cf]
+    ++
+    -- predefined tokens
+    [ ( "l i*", tokenAction "Ident" ) ]
+    ++
+    -- integers
+    [ ( "d+", "let i = lexeme lexbuf in TOK_Integer (int_of_string i)" )
+    -- doubles
+    , ( "d+ '.' d+ ('e' ('-')? d+)?"
+      , "let f = lexeme lexbuf in TOK_Double (float_of_string f)" )
+    -- strings
+    , ( "'\\\"' ((u # ['\\\"' '\\\\' '\\n']) | ('\\\\' ('\\\"' | '\\\\' | '\\\'' | 'n' | 't')))* '\\\"'"
+      , "let s = lexeme lexbuf in TOK_String (unescapeInitTail s)" )
+    -- chars
+    , ( "'\\'' ((u # ['\\\'' '\\\\']) | ('\\\\' ('\\\\' | '\\\'' | 'n' | 't'))) '\\\''"
+      , "let s = lexeme lexbuf in TOK_Char s.[1]")
+    -- spaces
+    , ( "[' ' '\\t']", "token lexbuf")
+    -- new lines
+    , ( "'\\n'", "incr_lineno lexbuf; token lexbuf" )
+    -- end of file
+    , ( "eof", "TOK_EOF" )
+    ]
+  where
+    (multilineC, singleLineC) = comments cf
+    tokenAction t = case reservedWords cf of
+        [] -> "let l = lexeme lexbuf in TOK_" <> t <>" l"
+        _  -> "let l = lexeme lexbuf in try Hashtbl.find resword_table l with Not_found -> TOK_" <> t <+> "l"
 
 -------------------------------------------------------------------
 -- Modified from the inlined version of @RegToAlex@.
@@ -199,7 +251,6 @@ render = rend 0
                         _            -> ""
 
           cons s t  = s ++ t
-          new i s   = s
           space t s = if null s then t else t ++ " " ++ s
 
 parenth :: [String] -> [String]
@@ -236,8 +287,8 @@ instance Print Reg where
    RChar c         -> prPrec i 3 (concat [prt 0 c])
    RAlts str       -> prPrec i 3 (concat [["["], [concatMap show str], ["]"]])
    RSeqs str       -> prPrec i 2 (concat (map (prt 0) str))
-   RDigit          -> prPrec i 3 (concat [["digit"]])
-   RLetter         -> prPrec i 3 (concat [["letter"]])
-   RUpper          -> prPrec i 3 (concat [["upper"]])
-   RLower          -> prPrec i 3 (concat [["lower"]])
-   RAny            -> prPrec i 3 (concat [["univ"]])
+   RDigit          -> prPrec i 3 (concat [["d"]])
+   RLetter         -> prPrec i 3 (concat [["l"]])
+   RUpper          -> prPrec i 3 (concat [["c"]])
+   RLower          -> prPrec i 3 (concat [["s"]])
+   RAny            -> prPrec i 3 (concat [["u"]])

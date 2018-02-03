@@ -20,71 +20,38 @@
 module BNFC.Backend.CPP.NoSTL (makeCppNoStl) where
 
 import BNFC.Utils
-import BNFC.Options
 import BNFC.CF
+import BNFC.Options
+import BNFC.Backend.Base
+import BNFC.Backend.CPP.Makefile
 import BNFC.Backend.CPP.NoSTL.CFtoCPPAbs
 import BNFC.Backend.CPP.NoSTL.CFtoFlex
 import BNFC.Backend.CPP.NoSTL.CFtoBison
 import BNFC.Backend.CPP.NoSTL.CFtoCVisitSkel
-import BNFC.Backend.CPP.NoSTL.CFtoCPPPrinter
+import BNFC.Backend.CPP.PrettyPrinter
 import Data.Char
-import System.Exit (exitFailure)
-import Control.Monad (when)
 import qualified BNFC.Backend.Common.Makefile as Makefile
 
-makeCppNoStl :: Backend
+makeCppNoStl :: SharedOptions -> CF -> MkFiles ()
 makeCppNoStl opts cf = do
     let (hfile, cfile) = cf2CPPAbs name cf
-    writeFileRep "Absyn.H" hfile
-    writeFileRep "Absyn.C" cfile
+    mkfile "Absyn.H" hfile
+    mkfile "Absyn.C" cfile
     let (flex, env) = cf2flex Nothing name cf
-    writeFileRep (name ++ ".l") flex
-    putStrLn "   (Tested with flex 2.5.31)"
+    mkfile (name ++ ".l") flex
     let bison = cf2Bison name cf env
-    writeFileRep (name ++ ".y") bison
-    putStrLn "   (Tested with bison 1.875a)"
+    mkfile (name ++ ".y") bison
     let header = mkHeaderFile cf (allCats cf) (allEntryPoints cf) env
-    writeFileRep "Parser.H" header
+    mkfile "Parser.H" header
     let (skelH, skelC) = cf2CVisitSkel cf
-    writeFileRep "Skeleton.H" skelH
-    writeFileRep "Skeleton.C" skelC
-    let (prinH, prinC) = cf2CPPPrinter cf
-    writeFileRep "Printer.H" prinH
-    writeFileRep "Printer.C" prinC
-    writeFileRep "Test.C" (cpptest cf)
-    when (make opts) $ writeFileRep "Makefile" $ makefile name
+    mkfile "Skeleton.H" skelH
+    mkfile "Skeleton.C" skelC
+    let (prinH, prinC) = cf2CPPPrinter False Nothing cf
+    mkfile "Printer.H" prinH
+    mkfile "Printer.C" prinC
+    mkfile "Test.C" (cpptest cf)
+    Makefile.mkMakefile opts $ makefile name
   where name = lang opts
-
-makefile :: String -> String
-makefile name =
-  (++) (unlines [ "CC = g++", "CCFLAGS = -g", "FLEX = flex", "BISON = bison", "" ])
-  $ Makefile.mkRule "all" [ "Test" ++ name ]
-    []
-  $ Makefile.mkRule "clean" []
-    -- peteg: don't nuke what we generated - move that to the "vclean" target.
-    [ "rm -f *.o " ++ name ++ ".dvi " ++ name ++ ".aux " ++ name ++ ".log " ++ name ++ ".ps Test" ++ name ]
-  $ Makefile.mkRule "distclean" []
-    [ "rm -f *.o Absyn.C Absyn.H Test.C Parser.C Parser.H Lexer.C Skeleton.C Skeleton.H Printer.C Printer.H"
-    , "rm -f " ++ name ++ ".l " ++ name ++ ".y " ++ name ++ ".tex " ++ name ++ ".dvi " ++ name ++ ".aux "
-    , "rm -f " ++ name ++ ".log " ++ name ++ ".ps Test" ++ name ++ " Makefile" ]
-  $ Makefile.mkRule ("Test" ++ name) [ "Absyn.o", "Lexer.o", "Parser.o", "Printer.o", "Test.o" ]
-    [ "@echo \"Linking Test" ++ name ++ "...\""
-    , "${CC} ${CCFLAGS} *.o -o Test" ++ name ]
-  $ Makefile.mkRule "Absyn.o" [ "Absyn.C", "Absyn.H" ]
-    [ "${CC} ${CCFLAGS} -c Absyn.C" ]
-  $ Makefile.mkRule "Lexer.C" [ name ++ ".l" ]
-    [ "${FLEX} -oLexer.C " ++ name ++ ".l" ]
-  $ Makefile.mkRule "Parser.C" [ name ++ ".y" ]
-    [ "${BISON} " ++ name ++ ".y -o Parser.C" ]
-  $ Makefile.mkRule "Lexer.o" [ "Lexer.C", "Parser.H" ]
-    [ "${CC} ${CCFLAGS} -c Lexer.C " ]
-  $ Makefile.mkRule "Parser.o" [ "Parser.C", "Absyn.H" ]
-    [ "${CC} ${CCFLAGS} -c Parser.C" ]
-  $ Makefile.mkRule "Printer.o" [ "Printer.C", "Printer.H", "Absyn.H" ]
-    [ "${CC} ${CCFLAGS} -c Printer.C" ]
-  $ Makefile.mkRule "Test.o" [ "Test.C", "Parser.H", "Printer.H", "Absyn.H" ]
-    [ "${CC} ${CCFLAGS} -c Test.C" ]
-  ""
 
 
 cpptest :: CF -> String
@@ -98,34 +65,60 @@ cpptest cf =
     "/*                                                                          */",
     "/****************************************************************************/",
     "#include <stdio.h>",
+    "#include <string.h>",
     "#include \"Parser.H\"",
     "#include \"Printer.H\"",
     "#include \"Absyn.H\"",
     "",
+    "void usage() {",
+    "  printf(\"usage: Call with one of the following argument " ++
+      "combinations:\\n\");",
+    "  printf(\"\\t--help\\t\\tDisplay this help message.\\n\");",
+    "  printf(\"\\t(no arguments)\tParse stdin verbosely.\\n\");",
+    "  printf(\"\\t(files)\\t\\tParse content of files verbosely.\\n\");",
+    "  printf(\"\\t-s (files)\\tSilent mode. Parse content of files " ++
+      "silently.\\n\");",
+    "}",
+    "",
     "int main(int argc, char ** argv)",
     "{",
     "  FILE *input;",
-    "  if (argc > 1) ",
-    "  {",
-    "    input = fopen(argv[1], \"r\");",
-    "    if (!input)",
-    "    {",
-    "      fprintf(stderr, \"Error opening input file.\\n\");",
-    "      exit(1);",
+    "  int quiet = 0;",
+    "  char *filename = NULL;",
+    "",
+    "  if (argc > 1) {",
+    "    if (strcmp(argv[1], \"-s\") == 0) {",
+    "      quiet = 1;",
+    "      if (argc > 2) {",
+    "        filename = argv[2];",
+    "      } else {",
+    "        input = stdin;",
+    "      }",
+    "    } else {",
+    "      filename = argv[1];",
     "    }",
     "  }",
-    "  else input = stdin;",
+    "",
+    "  if (filename) {",
+    "    input = fopen(filename, \"r\");",
+    "    if (!input) {",
+    "      usage();",
+    "      exit(1);",
+    "    }",
+    "  } else input = stdin;",
     "  /* The default entry point is used. For other options see Parser.H */",
     "  " ++ def ++ " *parse_tree = p" ++ def ++ "(input);",
     "  if (parse_tree)",
     "  {",
     "    printf(\"\\nParse Succesful!\\n\");",
-    "    printf(\"\\n[Abstract Syntax]\\n\");",
-    "    ShowAbsyn *s = new ShowAbsyn();",
-    "    printf(\"%s\\n\\n\", s->show(parse_tree));",
-    "    printf(\"[Linearized Tree]\\n\");",
-    "    PrintAbsyn *p = new PrintAbsyn();",
-    "    printf(\"%s\\n\\n\", p->print(parse_tree));",
+    "    if (!quiet) {",
+    "      printf(\"\\n[Abstract Syntax]\\n\");",
+    "      ShowAbsyn *s = new ShowAbsyn();",
+    "      printf(\"%s\\n\\n\", s->show(parse_tree));",
+    "      printf(\"[Linearized Tree]\\n\");",
+    "      PrintAbsyn *p = new PrintAbsyn();",
+    "      printf(\"%s\\n\\n\", p->print(parse_tree));",
+    "    }",
     "    return 0;",
     "  }",
     "  return 1;",
@@ -133,7 +126,7 @@ cpptest cf =
     ""
    ]
   where
-   def = head (allEntryPoints cf)
+   def = show (head (allEntryPoints cf))
 
 mkHeaderFile cf cats eps env = unlines
  [
@@ -147,7 +140,7 @@ mkHeaderFile cf cats eps env = unlines
   "  char char_;",
   "  double double_;",
   "  char* string_;",
-  (concatMap mkVar cats) ++ "} YYSTYPE;",
+  concatMap mkVar cats ++ "} YYSTYPE;",
   "",
   "#define _ERROR_ 258",
   mkDefines (259 :: Int) env,
@@ -157,26 +150,26 @@ mkHeaderFile cf cats eps env = unlines
   "#endif"
  ]
  where
-  mkForwardDec s | (normCat s == s) = "class " ++ (identCat s) ++ ";\n"
+  mkForwardDec s | normCat s == s = "class " ++ identCat s ++ ";\n"
   mkForwardDec _ = ""
-  mkVar s | (normCat s == s) = "  " ++ (identCat s) ++"*" +++ (map toLower (identCat s)) ++ "_;\n"
+  mkVar s | normCat s == s = "  " ++ identCat s ++"*" +++ map toLower (identCat s) ++ "_;\n"
   mkVar _ = ""
   mkDefines n [] = mkString n
-  mkDefines n ((_,s):ss) = ("#define " ++ s +++ (show n) ++ "\n") ++ (mkDefines (n+1) ss)
-  mkString n =  if isUsedCat cf "String"
+  mkDefines n ((_,s):ss) = "#define " ++ s +++ show n ++ "\n" ++ mkDefines (n+1) ss
+  mkString n =  if isUsedCat cf catString
    then ("#define _STRING_ " ++ show n ++ "\n") ++ mkChar (n+1)
    else mkChar n
-  mkChar n =  if isUsedCat cf "Char"
+  mkChar n =  if isUsedCat cf catChar
    then ("#define _CHAR_ " ++ show n ++ "\n") ++ mkInteger (n+1)
    else mkInteger n
-  mkInteger n =  if isUsedCat cf "Integer"
+  mkInteger n =  if isUsedCat cf catInteger
    then ("#define _INTEGER_ " ++ show n ++ "\n") ++ mkDouble (n+1)
    else mkDouble n
-  mkDouble n =  if isUsedCat cf "Double"
+  mkDouble n =  if isUsedCat cf catDouble
    then ("#define _DOUBLE_ " ++ show n ++ "\n") ++ mkIdent(n+1)
    else mkIdent n
-  mkIdent n =  if isUsedCat cf "Ident"
-   then ("#define _IDENT_ " ++ show n ++ "\n")
+  mkIdent n =  if isUsedCat cf catIdent
+   then "#define _IDENT_ " ++ show n ++ "\n"
    else ""
-  mkFunc s | (normCat s == s) = (identCat s) ++ "*" +++ "p" ++ (identCat s) ++ "(FILE *inp);\n"
+  mkFunc s | normCat s == s = identCat s ++ "*" +++ "p" ++ identCat s ++ "(FILE *inp);\n"
   mkFunc _ = ""

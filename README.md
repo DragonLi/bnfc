@@ -18,6 +18,22 @@ Given a Labelled BNF grammar the tool produces:
 
 *More information*: http://bnfc.digitalgrammars.com/
 
+Requirements
+------------
+
+Everything needed to build bnfc is available in the
+[haskell platform](https://www.haskell.org/platform/).
+
+On Debian, you can install the dependencies as follows
+
+    sudo apt-get install haskell-platform
+
+On Fedora:
+
+    yum install haskell-platform
+
+Then proceed with the installation.
+
 Installation
 ------------
 
@@ -27,13 +43,36 @@ To install bnfc from git:
     cd bnfc/source
     cabal install
 
-To download the latest realease, see the bnfc website: http://bnfc.digitalgrammars.com/
+To download the latest release, see the bnfc website: http://bnfc.digitalgrammars.com/
+
+
+Documentation
+-------------
+
+https://bnfc.readthedocs.org/en/latest/
+
+Run tests
+---------
+
+Here is how to build and run the different test suites for bnfc.
+
+    cabal sandbox init # Cabal >= 1.18 only
+    cabal install --only-dependencies --enable-tests
+    cabal configure --enable-tests
+    cabal build
+    cabal test
 
 Contribute
 ----------
 
 - Issue Tracker: https://github.com/BNFC/bnfc/issues
 - Source Code: https://github.com/BNFC/bnfc
+- Haskell coding style guide: https://github.com/andreasabel/haskell-style-guide/
+- Some pull request etiquette:
+  * Document, document, document!  (See style guide)
+  * Include test cases that cover your feature.
+  * Include changelog entry.
+  * More etiquette: E.g. https://gist.github.com/mikepea/863f63d6e37281e329f8
 
 Support
 -------
@@ -45,4 +84,3 @@ License
 -------
 
 The project is licensed under the GNU GENERAL PUBLIC LICENSE Version 2.
-

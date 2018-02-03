@@ -42,10 +42,8 @@ module BNFC.Backend.CSharp.CAbstoCSharpAbs (cabs2csharpabs) where
 
 import BNFC.Backend.Common.OOAbstract
 import BNFC.CF
-import BNFC.Utils((+++),(++++))
-import BNFC.Backend.Common.NamedVariables
+import BNFC.Utils((+++))
 import Data.List
-import Data.Char(toLower)
 import Data.Maybe
 import BNFC.Backend.CSharp.CSharpUtils
 
@@ -78,11 +76,11 @@ cabs2csharpabs namespace cabs useWCF = unlinesInline [
  ]
   where
     -- an abstract class is a category which does not contain rules
-      abstractclasses = [ (cat, (map fst cabsrules)) | (cat, cabsrules) <- signatures cabs, cat `notElem` (map fst cabsrules) ]
+      abstractclasses = [ (cat, map fst cabsrules) | (cat, cabsrules) <- signatures cabs, cat `notElem` map fst cabsrules ]
 
 -- auxiliaries
 
-prDataContract :: Bool -> [Cat] -> String
+prDataContract :: Bool -> [String] -> String
 prDataContract False _   = ""
 prDataContract True []   = "  [DataContract]"
 prDataContract True funs = unlinesInline [
@@ -90,7 +88,7 @@ prDataContract True funs = unlinesInline [
   unlinesInline $ map prDataContract' funs
   ]
   where
-    prDataContract' :: Cat -> String
+    prDataContract' :: String -> String
     prDataContract' fun = "  [KnownType(typeof(" ++ fun ++ "))]"
 
 prDataMember :: Bool -> String
@@ -118,7 +116,7 @@ prTokenBaseType useWCF =  unlinesInline [
   "  "
   ]
 
-prToken :: Namespace -> Bool -> Cat -> String
+prToken :: Namespace -> Bool -> String -> String
 prToken namespace useWCF name = unlinesInline [
   prDataContract useWCF [],
   "  public class " ++ name ++ " : " ++ identifier namespace "TokenBaseType",
@@ -133,7 +131,7 @@ prToken namespace useWCF name = unlinesInline [
   "  }"
   ]
 
-prAbs :: Namespace -> Bool -> (Cat, [Cat]) -> String
+prAbs :: Namespace -> Bool -> (String, [String]) -> String
 prAbs namespace useWCF (cat, funs) = unlinesInline [
   prDataContract useWCF funs,
   "  public abstract class " ++ cat,
@@ -143,18 +141,18 @@ prAbs namespace useWCF (cat, funs) = unlinesInline [
   "  }"
   ]
 
-prVisitor :: Namespace -> [Cat] -> String
-prVisitor namespace funs = unlinesInline [
-  "    ",
-	"    public interface Visitor<R,A>",
-	"    {",
-	unlinesInline (map prVisitFun funs),
-	"    }"
-	]
+prVisitor :: Namespace -> [String] -> String
+prVisitor namespace funs = unlinesInline
+  [ "    "
+  , "    public interface Visitor<R,A>"
+  , "    {"
+  , unlinesInline (map prVisitFun funs)
+  , "    }"
+  ]
   where
     prVisitFun f = "      R Visit(" ++ identifier namespace f ++ " p, A arg);"
 
-prCon :: Namespace -> Bool -> (Cat,CSharpAbsRule) -> String
+prCon :: Namespace -> Bool -> (String,CSharpAbsRule) -> String
 prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   prDataContract useWCF [],
   "  public class " ++ f ++ ext,
@@ -166,7 +164,7 @@ prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   prEquals namespace f propnames,
   prHashCode namespace f propnames,
   -- print Accept method, override keyword needed for classes inheriting an abstract class
-  prAccept namespace c (if isAlsoCategory f c then Nothing else (Just " override")),
+  prAccept namespace c (if isAlsoCategory f c then Nothing else Just " override"),
   -- if this label is also a category, we need to print the Visitor interface
   -- (if not, it was already printed in the abstract class)
   if isAlsoCategory f c then prVisitor namespace [c] else "",
@@ -174,7 +172,7 @@ prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   ]
   where
     -- This handles the case where a LBNF label is the same as the category.
-    ext = if isAlsoCategory f c then "" else " : " ++ identifier namespace (identCat c)
+    ext = if isAlsoCategory f c then "" else " : " ++ identifier namespace (identCat $ strToCat c)
     propnames = [prop | (_, _, _, prop) <- cs]
     prInstVar typ var = unlinesInline [
       "    private " ++ identifier namespace (typename typ) +++ var ++ ";"
@@ -223,12 +221,12 @@ prEquals namespace c vars = unlinesInline [
   ]
   where
     prEqualsVars [] = "true"
-    prEqualsVars vs = concat $ intersperse " && " $ map equalVar vs
+    prEqualsVars vs = intercalate " && " $ map equalVar vs
     equalVar v = "this." ++ v ++ ".Equals(obj." ++ v ++ ")"
 
 -- Creates the GetHashCode() method.
 prHashCode :: Namespace -> Fun -> [String] -> String
-prHashCode namespace c vars = unlinesInline [
+prHashCode _ _ vars = unlinesInline [
   "    ",
   "    public override int GetHashCode()",
   "    {",
@@ -238,12 +236,11 @@ prHashCode namespace c vars = unlinesInline [
   where
     aPrime = 37
     prHashVars [] = show aPrime
-    prHashVars (v:vs) = prHashVars' (hashVar v) vs
-    prHashVars' r [] = r
-    prHashVars' r (v:vs) = prHashVars' (show aPrime ++ "*" ++ "(" ++ r ++ ")+" ++ hashVar v) vs
+    prHashVars (v:vs) =
+        foldl (\ r v -> show aPrime ++ "*" ++ "(" ++ r ++ ")+" ++ hashVar v) v vs
     hashVar var = "this." ++ var ++ ".GetHashCode()"
 
-prList :: Namespace -> (Cat,Bool) -> String
+prList :: Namespace -> (String,Bool) -> String
 prList namespace (c,_) = unlinesInline [
   "  public class " ++ c ++ " : List<" ++ identifier namespace (typename bas) ++ ">",
   "  {",
@@ -253,7 +250,7 @@ prList namespace (c,_) = unlinesInline [
     bas = drop 4 c -- drop List
 
 -- The standard Accept method for the Visitor pattern
-prAccept :: Namespace -> Cat -> Maybe String -> String
+prAccept :: Namespace -> String -> Maybe String -> String
 prAccept namespace cat maybeOverride = unlinesInline [
   "    ",
   "    public" ++ fromMaybe "" maybeOverride ++ " R Accept<R,A>(" ++ identifier namespace cat ++ ".Visitor<R,A> visitor, A arg)",
@@ -272,6 +269,6 @@ prConstructor namespace (f,cs) = unlinesInline [
   ]
  where
    cvs = [c | (_,_,c,_) <- cs]
-   pvs = ["p" ++ show i | ((x,st,_,_),i) <- zip cs [1..]]
-   conargs = concat $ intersperse ", "
+   pvs = ["p" ++ show i | ((_,_,_,_),i) <- zip cs [1..]]
+   conargs = intercalate ", "
      [identifier namespace (typename x) +++ v | ((x,_,_,_),v) <- zip cs pvs]

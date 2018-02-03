@@ -19,18 +19,16 @@
 
 module BNFC.Backend.HaskellProfile (makeHaskellProfile) where
 
--- import Utils
+import Control.Monad (when)
+import Data.Maybe (isJust)
+
 import BNFC.CF
-import BNFC.Options
+import BNFC.Options hiding (Backend)
+import BNFC.Backend.Base
 import BNFC.Backend.HaskellProfile.CFtoHappyProfile
 import BNFC.Backend.Haskell.CFtoAlex
 import BNFC.Backend.Haskell.CFtoAlex2
 import BNFC.Backend.Haskell.MkErrM
-import BNFC.Utils
-
-import Data.Char
-import System.Exit(exitFailure)
-import Control.Monad(when)
 
 -- naming conventions
 
@@ -46,63 +44,46 @@ nameFile name ext inDir lang =
        then lang ++ "/" ++ name ++ "." ++ ext
        else name ++ lang ++ "." ++ ext
 
-absFile, absFileM, alexFile, alexFileM, gfAbs, gfConc, happyFile, happyFileM,
- errFile, errFileM, templateFile, templateFileM, printerFile, printerFileM,
- layoutFile, layoutFileM, tFile, tFileM, mFile :: Bool -> String -> FilePath
-absFile       = nameFile "Abs" "hs"
+absFileM, alexFile, alexFileM, happyFile, happyFileM, errFile, errFileM, tFile,
+  mFile :: Bool -> String -> FilePath
 absFileM      = nameMod  "Abs"
 alexFile      = nameFile "Lex" "x"
 alexFileM     = nameMod  "Lex"
 happyFile     = nameFile "Par" "y"
 happyFileM    = nameMod  "Par"
-templateFile  = nameFile "Skel" "hs"
-templateFileM = nameMod  "Skel"
-printerFile   = nameFile "Print" "hs"
-printerFileM  = nameMod  "Print"
-gfAbs         = nameFile "" "Abs.gf"
-gfConc        = nameFile "" "Conc.gf"
 tFile         = nameFile "Test" "hs"
-tFileM        = nameMod  "Test"
 mFile inDir n = if inDir then n ++ "/" ++ "Makefile" else "Makefile"
 errFile b n   = if b then n ++ "/" ++ "ErrM.hs" else "ErrM.hs"
 errFileM b n  = if b then n ++ "." ++ "ErrM" else "ErrM"
-layoutFileM   = nameMod  "Layout"
-xmlFileM      = nameMod  "XML"
-layoutFile    = nameFile "Layout" "hs"
 
-makeHaskellProfile :: SharedOptions -> CFP -> IO ()
+makeHaskellProfile :: SharedOptions -> CFP -> Backend
 makeHaskellProfile opts cfp = do
   let absMod = absFileM      (inDir opts) name
       lexMod = alexFileM     (inDir opts) name
       parMod = happyFileM    (inDir opts) name
-      prMod  = printerFileM  (inDir opts) name
-      layMod = layoutFileM   (inDir opts) name
-      tplMod = templateFileM (inDir opts) name
       errMod = errFileM      (inDir opts) name
   let cf = cfp2cf cfp
   do
-    when (inDir opts) (prepareDir name)
-----    writeFileRep (absFile  (inDir opts) name) $ cf2Abstract (absFileM (inDir opts) name) cf
-    if (alexMode opts == Alex1) then do
-		    writeFileRep (alexFile (inDir opts) name) $ cf2alex lexMod errMod cf
-		    putStrLn "   (Use Alex 1.1 to compile.)"
-	       else do
-		    writeFileRep (alexFile (inDir opts) name) $ cf2alex2 lexMod errMod "" False False cf
-                    putStrLn "   (Use Alex 2.0 to compile.)"
-    writeFileRep (happyFile (inDir opts) name) $
-		 cf2HappyProfileS parMod absMod lexMod errMod cfp
-    putStrLn "   (Tested with Happy 1.13)"
-----    writeFileRep (templateFile (inDir opts) name) $
-----		 cf2Template tplMod absMod errMod cf
-----    writeFileRep (printerFile (inDir opts) name)  $ cf2Printer prMod absMod cf
+----    mkfile (absFile  (inDir opts) name) $ cf2Abstract (absFileM (inDir opts) name) cf
+    if alexMode opts == Alex1 then do
+                    mkfile (alexFile (inDir opts) name) $ cf2alex lexMod errMod cf
+                    liftIO $ putStrLn "   (Use Alex 1.1 to compile.)"
+               else do
+                    mkfile (alexFile (inDir opts) name) $ cf2alex2 lexMod errMod "" False False cf
+                    liftIO $ putStrLn "   (Use Alex 2.0 to compile.)"
+    mkfile (happyFile (inDir opts) name) $
+                 cf2HappyProfileS parMod absMod lexMod errMod cfp
+    liftIO $ putStrLn "   (Tested with Happy 1.13)"
+----    mkfile (templateFile (inDir opts) name) $
+----             cf2Template tplMod absMod errMod cf
+----    mkfile (printerFile (inDir opts) name)  $ cf2Printer prMod absMod cf
 ----    if hasLayout cf then
-----      writeFileRep (layoutFile (inDir opts) name) $ cf2Layout alex1 (inDir opts) layMod lexMod cf
+----      mkfile (layoutFile (inDir opts) name) $ cf2Layout alex1 (inDir opts) layMod lexMod cf
 ----      else return ()
-    writeFileRep (tFile (inDir opts) name)        $ testfile (inDir opts) name (xml opts>0) cf
-    writeFileRep (errFile (inDir opts) name)      $ errM errMod cf
-    if (make opts)
-       then (writeFileRep (mFile (inDir opts) name) $ makefile (inDir opts) name)
-       else return ()
+    mkfile (tFile (inDir opts) name)        $ testfile (inDir opts) name (xml opts>0) cf
+    mkfile (errFile (inDir opts) name) $ mkErrM errMod (ghcExtensions opts)
+    when (isJust $ make opts)
+        (mkfile (mFile (inDir opts) name) $ makefile (inDir opts) name)
 ----    case xml of
 ----      2 -> makeXML name True cf
 ----      1 -> makeXML name False cf
@@ -116,68 +97,68 @@ makefile inDir name = makeA where
                       if inDir then name ++ "/" ++ "Test" else "Test" ++ name
   makeA = unlines
                 [
- 		 "all:",
+                 "all:",
                  "\thappy -gca " ++ happyFile False name',
-		 "\talex "  ++ alexFile  False name',
-		 "\t" ++ if inDir then
-		           "(" ++ "cd ..; " ++ ghcCommand ++ ")"
+                 "\talex "  ++ alexFile  False name',
+                 '\t' : if inDir then
+                           "(" ++ "cd ..; " ++ ghcCommand ++ ")"
                          else ghcCommand,
-		 "clean:",
-		 "\t rm -f *.hi *.o",
-		 "distclean: " ++ if inDir then "" else "clean",
-		 if inDir then
-		   "\t rm -rf ../" ++ name -- erase this directory!
-		 else
-		   "\t rm -f " ++ unwords [
-					   "Doc" ++ name ++ ".*",
-					   "Lex" ++ name ++ ".*",
-					   "Par" ++ name ++ ".*",
-----					   "Layout" ++ name ++ ".*",
-----					   "Skel" ++ name ++ ".*",
-----					   "Print" ++ name ++ ".*",
-					   "Test" ++ name ++ ".*",
-----					   "Abs" ++ name ++ ".*",
-					   "Test" ++ name,
-					   "ErrM.*",
+                 "clean:",
+                 "\t rm -f *.hi *.o",
+                 "distclean: " ++ if inDir then "" else "clean",
+                 if inDir then
+                   "\t rm -rf ../" ++ name -- erase this directory!
+                 else
+                   "\t rm -f " ++ unwords [
+                                           "Doc" ++ name ++ ".*",
+                                           "Lex" ++ name ++ ".*",
+                                           "Par" ++ name ++ ".*",
+----                                       "Layout" ++ name ++ ".*",
+----                                       "Skel" ++ name ++ ".*",
+----                                       "Print" ++ name ++ ".*",
+                                           "Test" ++ name ++ ".*",
+----                                       "Abs" ++ name ++ ".*",
+                                           "Test" ++ name,
+                                           "ErrM.*",
 ----                                       name ++ ".dtd",
-----					   "XML" ++ name ++ ".*",
-					   "Makefile*"
-					  ]
-		]
+----                                       "XML" ++ name ++ ".*",
+                                           "Makefile*"
+                                          ]
+                ]
 
 
 testfile :: Bool -> String -> Bool -> CF -> String
-testfile inDir name xml cf = makeA where
+testfile inDir name _ cf = makeA where
 
  makeA = let lay = hasLayout cf
-             xpr = if xml then "XPrint a, " else ""
          in unlines
-	        ["-- automatically generated by BNF Converter",
-		 "module Main where\n",
-	         "",
+                ["-- automatically generated by BNF Converter",
+                 "module Main where\n",
+                 "",
                  "import Trees",
                  "import Profile",
-	         "import System.IO ( stdin, hGetContents )",
-	         "import System.Environment ( getArgs, getProgName )",
-		 "",
-		 "import " ++ alexFileM     inDir name,
-		 "import " ++ happyFileM    inDir name,
-----		 "import " ++ templateFileM inDir name,
-----	         "import " ++ printerFileM  inDir name,
-----	         "import " ++ absFileM      inDir name,
-----	         if lay then ("import " ++ layoutFileM inDir name) else "",
-----	         if xml then ("import " ++ xmlFileM inDir name) else "",
-	         "import " ++ errFileM      inDir name,
-		 "",
-		 "type ParseFun = [Token] -> Err CFTree",
-	         "",
+                 "import System.IO ( stdin, hGetContents )",
+                 "import System.Environment ( getArgs, getProgName )",
+                 "import System.Exit ( exitFailure )",
+                 "",
+                 "import " ++ alexFileM     inDir name,
+                 "import " ++ happyFileM    inDir name,
+----             "import " ++ templateFileM inDir name,
+----             "import " ++ printerFileM  inDir name,
+----             "import " ++ absFileM      inDir name,
+----             if lay then ("import " ++ layoutFileM inDir name) else "",
+----             if xml then ("import " ++ xmlFileM inDir name) else "",
+                 "import " ++ errFileM      inDir name,
+                 "",
+                 "type ParseFun = [Token] -> Err CFTree",
+                 "",
                  "myLLexer = " ++ if lay then "resolveLayout True . myLexer"
                                          else "myLexer",
                  "",
-		 "runFile :: ParseFun -> FilePath -> IO ()",
-		 "runFile p f = readFile f >>= run p",
-		 "",
-		 "run :: ParseFun -> String -> IO ()",
+                 "runFile :: ParseFun -> FilePath -> IO ()",
+                 "runFile p f = readFile f >>= run p",
+                 "",
+                 "run :: ParseFun -> String -> IO ()",
   "run p s = do",
   "  let ts = myLLexer s",
   "  let etree = p ts",
@@ -195,13 +176,25 @@ testfile inDir name xml cf = makeA where
   "      putStrLn s",
   "      putStrLn \"\\nParse failed... tokenization:\"",
   "      print ts",
-		 "",
-		 "main :: IO ()",
-		 "main = do args <- getArgs",
-		 "          case args of",
-		 "            []  -> hGetContents stdin >>= run " ++ firstParser,
-		 "            [f] -> runFile " ++ firstParser ++ " f",
-		 "            _   -> do progName <- getProgName",
-		 "                      putStrLn $ progName ++ \": excess arguments.\""
-		 ]
-		  where firstParser = 'p' : firstEntry cf
+                 "",
+                 "usage :: IO ()",
+                 "usage = do",
+                 "  putStrLn $ unlines",
+                 "    [ \"usage: Call with one of the following argument combinations:\"",
+                 "    , \"  --help          Display this help message.\"",
+                 "    , \"  (no arguments)  Parse stdin.\"",
+                 "    , \"  (file)          Parse content of file.\"",
+                 "    ]",
+                 "  exitFailure",
+                 "",
+                 "main :: IO ()",
+                 "main = do",
+                 "  args <- getArgs",
+                 "  case args of",
+                 "    [\"--help\"] -> usage",
+                 "    []  -> hGetContents stdin >>= run " ++ firstParser,
+                 "    [f] -> runFile " ++ firstParser ++ " f",
+                 "    _   -> do progName <- getProgName",
+                 "              putStrLn $ progName ++ \": excess arguments.\""
+                 ]
+                  where firstParser = 'p' : show (firstEntry cf)

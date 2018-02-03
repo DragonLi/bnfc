@@ -17,7 +17,7 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 -}
 
-module BNFC.Backend.Haskell (makeHaskell, AlexVersion(..), makefile) where
+module BNFC.Backend.Haskell (makeHaskell, AlexVersion(..), makefile, testfile) where
 
 
 
@@ -39,16 +39,13 @@ import BNFC.Backend.Haskell.HsOpts
 import BNFC.Backend.Haskell.ToCNF as ToCNF
 import BNFC.Backend.Haskell.MkErrM
 import BNFC.Backend.Haskell.MkSharedString
-import BNFC.Utils
+import BNFC.Backend.Haskell.Utils (parserName)
 import qualified BNFC.Backend.Common.Makefile as Makefile
 
-import Data.Char
-import Data.Maybe (fromMaybe,maybe)
-import System.Exit (exitFailure)
-import System.FilePath (pathSeparator,(</>))
+import System.FilePath (pathSeparator)
 import Control.Monad(when,unless)
-import System.FilePath (takeFileName)
 import Text.Printf (printf)
+import Text.PrettyPrint
 
 -- naming conventions
 
@@ -65,11 +62,7 @@ makeHaskell opts cf = do
       errMod = errFileM opts
       shareMod = shareFileM opts
   do
-    let dir = codeDir opts
-    -- unless (null dir) $ do
-    --  putStrLn $ "Creating directory " ++ dir
-    --  prepareDir dir
-    mkfile (absFile opts) $ cf2Abstract (byteStrings opts) (ghcExtensions opts) absMod cf
+    mkfile (absFile opts) $ cf2Abstract (byteStrings opts) (ghcExtensions opts) (functor opts) absMod cf
     case alexMode opts of
       Alex1 -> do
         mkfile (alexFile opts) $ cf2alex lexMod errMod cf
@@ -80,18 +73,18 @@ makeHaskell opts cf = do
       Alex3 -> do
         mkfile (alexFile opts) $ cf2alex3 lexMod errMod shareMod (shareStrings opts) (byteStrings opts) cf
         liftIO $ printf "Use Alex 3.0 to compile %s.\n" (alexFile opts)
-    unless (cnf opts) $ do        
+    unless (cnf opts) $ do
       mkfile (happyFile opts) $
-        cf2HappyS parMod absMod lexMod errMod (glr opts) (byteStrings opts) cf
+        cf2HappyS parMod absMod lexMod errMod (glr opts) (byteStrings opts) (functor opts) cf
       liftIO $ printf "%s Tested with Happy 1.15\n" (happyFile opts)
     mkfile (tFile opts)        $ testfile opts cf
     mkfile (txtFile opts)      $ cfToTxt (lang opts) cf
-    mkfile (templateFile opts) $ cf2Template (templateFileM opts) absMod errMod cf
-    mkfile (printerFile opts)  $ cf2Printer (byteStrings opts) prMod absMod cf
+    mkfile (templateFile opts) $ cf2Template (templateFileM opts) absMod errMod (functor opts) cf
+    mkfile (printerFile opts)  $ cf2Printer (byteStrings opts) (functor opts) False prMod absMod cf
     when (hasLayout cf) $ mkfile (layoutFile opts) $ cf2Layout (alex1 opts) (inDir opts) layMod lexMod cf
-    mkfile (errFile opts)      $ errM errMod cf
+    mkfile (errFile opts) $ mkErrM errMod (ghcExtensions opts)
     when (shareStrings opts) $ mkfile (shareFile opts)    $ sharedString shareMod (byteStrings opts) cf
-    when (make opts) $ mkfile "Makefile" $ makefile opts
+    Makefile.mkMakefile opts $ makefile opts
     case xml opts of
       2 -> makeXML opts True cf
       1 -> makeXML opts False cf
@@ -101,114 +94,121 @@ makeHaskell opts cf = do
       mkfile "TestCNF.hs" $ ToCNF.genTestFile opts cf
       mkfile "BenchCNF.hs" $ ToCNF.genBenchmark opts
 
-codeDir :: Options -> FilePath
-codeDir opts = let pref = maybe "" pkgToDir (inPackage opts)
-		   dir = if inDir opts then lang opts else ""
-		   sep = if null pref || null dir then "" else [pathSeparator]
-		 in pref ++ sep ++ dir
 
-makefile :: Options -> String
+makefile :: Options -> Doc
 makefile opts = makeA where
   glr_params = if glr opts == GLR then "--glr --decode " else ""
   dir = let d = codeDir opts in if null d then "" else d ++ [pathSeparator]
-  cd c = if null dir then c else "(cd " ++ dir ++ "; " ++ c ++ ")"
-  makeA = Makefile.mkRule "all" []
+  makeA = vcat
+      [ Makefile.mkRule "all" []
            ([ "happy -gca " ++ glr_params ++ happyFile opts | not (cnf opts) ] ++
             [ "alex -g " ++ alexFile opts ] ++
-            [ if cnf opts 
+            [ if cnf opts
               then "ghc --make TestCNF.hs"
               else "ghc --make " ++ tFile opts ++ " -o " ++ mkFile withLang "Test" "" opts])
-        $ Makefile.mkRule "clean" []
-            [ "-rm -f "  ++ unwords
-                (map (dir++) [ "*.log", "*.aux", "*.hi", "*.o", "*.dvi" ])
-            , "-rm -f " ++ psFile opts ]
-        $  Makefile.mkRule "distclean" ["clean"]
-            [ "-rm -f " ++ unwords
-                [ mkFile withLang "Doc" "*" opts
-                , mkFile withLang "Lex" "*" opts
-                , mkFile withLang "Par" "*" opts
-                , mkFile withLang "Layout" "*" opts
-                , mkFile withLang "Skel" "*" opts
-                , mkFile withLang "Print" "*" opts
-                , mkFile withLang "Test" "*" opts
-                , mkFile withLang "Abs" "*" opts
-                , mkFile withLang "Test" "" opts
-                , mkFile noLang   "ErrM" "*" opts
-                , mkFile noLang   "SharedString" "*" opts
-                , mkFile withLang "ComposOp" "*" opts
-                , dir ++ lang opts ++ ".dtd"
-                , mkFile withLang "XML" "*" opts
-                , "Makefile*" ]
-            , if null dir then "" else "\t-rmdir -p " ++ dir ]
-        ""
+      , Makefile.mkRule "clean" []
+          [ "-rm -f "  ++ unwords
+                (map (dir++) [ "*.log", "*.aux", "*.hi", "*.o", "*.dvi" ]) ]
+      ,  Makefile.mkRule "distclean" ["clean"]
+          [ "-rm -f " ++ unwords
+              [ mkFile withLang "Doc" "*" opts
+              , mkFile withLang "Lex" "*" opts
+              , mkFile withLang "Par" "*" opts
+              , mkFile withLang "Layout" "*" opts
+              , mkFile withLang "Skel" "*" opts
+              , mkFile withLang "Print" "*" opts
+              , mkFile withLang "Test" "*" opts
+              , mkFile withLang "Abs" "*" opts
+              , mkFile withLang "Test" "" opts
+              , mkFile noLang   "ErrM" "*" opts
+              , mkFile noLang   "SharedString" "*" opts
+              , mkFile noLang "ComposOp" "*" opts
+              , dir ++ lang opts ++ ".dtd"
+              , mkFile withLang "XML" "*" opts
+              , "Makefile*" ]
+          , if null dir then "" else "\t-rmdir -p " ++ dir ]
+      ]
 
 testfile :: Options -> CF -> String
 testfile opts cf
         = let lay = hasLayout cf
-	      use_xml = xml opts > 0
+              use_xml = xml opts > 0
               xpr = if use_xml then "XPrint a, "     else ""
-	      use_glr = glr opts == GLR
+              use_glr = glr opts == GLR
               if_glr s = if use_glr then s else ""
-	      firstParser = if use_glr then "the_parser" else parserName
-	      parserName = 'p' : topType
-	      topType = firstEntry cf
+              firstParser = if use_glr then "the_parser" else render (parserName topType)
+              topType = firstEntry cf
           in unlines
-	        ["-- automatically generated by BNF Converter",
-		 "module Main where\n",
-	         "",
-	         "import System.IO ( stdin, hGetContents )",
-	         "import System.Environment ( getArgs, getProgName )",
-	         "import System.Exit ( exitFailure, exitSuccess )",
-		 "",
-		 "import " ++ alexFileM     opts,
-		 "import " ++ happyFileM    opts,
-		 "import " ++ templateFileM opts,
-	         "import " ++ printerFileM  opts,
-	         "import " ++ absFileM      opts,
-	         if lay then "import " ++ layoutFileM opts else "",
-	         if use_xml then "import " ++ xmlFileM opts else "",
-	         if_glr "import qualified Data.Map(Map, lookup, toList)",
-	         if_glr "import Data.Maybe(fromJust)",
-	         "import " ++ errFileM      opts,
-		 "",
-		 if use_glr
-		   then "type ParseFun a = [[Token]] -> (GLRResult, GLR_Output (Err a))"
-		   else "type ParseFun a = [Token] -> Err a",
-	         "",
+                ["-- automatically generated by BNF Converter",
+                 "module Main where\n",
+                 "",
+                 "import System.IO ( stdin, hGetContents )",
+                 "import System.Environment ( getArgs, getProgName )",
+                 "import System.Exit ( exitFailure, exitSuccess )",
+                 "import Control.Monad (when)",
+                 "",
+                 "import " ++ alexFileM     opts,
+                 "import " ++ happyFileM    opts,
+                 "import " ++ templateFileM opts,
+                 "import " ++ printerFileM  opts,
+                 "import " ++ absFileM      opts,
+                 if lay then "import " ++ layoutFileM opts else "",
+                 if use_xml then "import " ++ xmlFileM opts else "",
+                 if_glr "import qualified Data.Map(Map, lookup, toList)",
+                 if_glr "import Data.Maybe(fromJust)",
+                 "import " ++ errFileM      opts,
+                 "",
+                 if use_glr
+                   then "type ParseFun a = [[Token]] -> (GLRResult, GLR_Output (Err a))"
+                   else "type ParseFun a = [Token] -> Err a",
+                 "",
                  "myLLexer = " ++ if lay then "resolveLayout True . myLexer"
                                          else "myLexer",
                  "",
                  "type Verbosity = Int",
                  "",
                  "putStrV :: Verbosity -> String -> IO ()",
-                 "putStrV v s = if v > 1 then putStrLn s else return ()",
+                 "putStrV v s = when (v > 1) $ putStrLn s",
                  "",
-		 "runFile :: (" ++ xpr ++ if_glr "TreeDecode a, " ++ "Print a, Show a) => Verbosity -> ParseFun a -> FilePath -> IO ()",
-		 "runFile v p f = putStrLn f >> readFile f >>= run v p",
-		 "",
-		 "run :: (" ++ xpr ++ if_glr "TreeDecode a, " ++ "Print a, Show a) => Verbosity -> ParseFun a -> String -> IO ()",
-		 if use_glr then run_glr else run_std use_xml,
-		 "",
-		 "showTree :: (Show a, Print a) => Int -> a -> IO ()",
-		 "showTree v tree",
-		 " = do",
-		 "      putStrV v $ \"\\n[Abstract Syntax]\\n\\n\" ++ show tree",
-		 "      putStrV v $ \"\\n[Linearized tree]\\n\\n\" ++ printTree tree",
-		 "",
-		 "main :: IO ()",
-		 "main = do args <- getArgs",
-		 "          case args of",
-		 "            [] -> hGetContents stdin >>= run 2 " ++ firstParser,
-		 "            \"-s\":fs -> mapM_ (runFile 0 " ++ firstParser ++ ") fs",
-		 "            fs -> mapM_ (runFile 2 " ++ firstParser ++ ") fs",
-		 "",
-		 if_glr $ "the_parser :: ParseFun " ++ topType,
-		 if_glr $ "the_parser = lift_parser " ++ parserName,
-		 if_glr $ "",
-		 if_glr $ lift_parser
-		 ]
+                 "runFile :: (" ++ xpr ++ if_glr "TreeDecode a, " ++ "Print a, Show a) => Verbosity -> ParseFun a -> FilePath -> IO ()",
+                 "runFile v p f = putStrLn f >> readFile f >>= run v p",
+                 "",
+                 "run :: (" ++ xpr ++ if_glr "TreeDecode a, " ++ "Print a, Show a) => Verbosity -> ParseFun a -> String -> IO ()",
+                 if use_glr then runGlr else runStd use_xml,
+                 "",
+                 "showTree :: (Show a, Print a) => Int -> a -> IO ()",
+                 "showTree v tree",
+                 " = do",
+                 "      putStrV v $ \"\\n[Abstract Syntax]\\n\\n\" ++ show tree",
+                 "      putStrV v $ \"\\n[Linearized tree]\\n\\n\" ++ printTree tree",
+                 "",
+                 "usage :: IO ()",
+                 "usage = do",
+                 "  putStrLn $ unlines",
+                 "    [ \"usage: Call with one of the following argument combinations:\"",
+                 "    , \"  --help          Display this help message.\"",
+                 "    , \"  (no arguments)  Parse stdin verbosely.\"",
+                 "    , \"  (files)         Parse content of files verbosely.\"",
+                 "    , \"  -s (files)      Silent mode. Parse content of files silently.\"",
+                 "    ]",
+                 "  exitFailure",
+                 "",
+                 "main :: IO ()",
+                 "main = do",
+                 "  args <- getArgs",
+                 "  case args of",
+                 "    [\"--help\"] -> usage",
+                 "    [] -> getContents >>= run 2 " ++ firstParser,
+                 "    \"-s\":fs -> mapM_ (runFile 0 " ++ firstParser ++ ") fs",
+                 "    fs -> mapM_ (runFile 2 " ++ firstParser ++ ") fs",
+                 "",
+                 if_glr $ "the_parser :: ParseFun " ++ show topType,
+                 if_glr $ "the_parser = lift_parser " ++ render (parserName topType),
+                 if_glr "",
+                 if_glr liftParser
+                 ]
 
-run_std xml
+runStd xml
  = unlines
    [ "run v p s = let ts = myLLexer s in case p ts of"
    , "           Bad s    -> do putStrLn \"\\nParse              Failed...\\n\""
@@ -224,7 +224,7 @@ run_std xml
    , "                          exitSuccess"
    ]
 
-run_glr
+runGlr
  = unlines
    [ "run v p s"
    , " = let ts = map (:[]) $ myLLexer s"
@@ -251,7 +251,7 @@ run_glr
    ]
 
 
-lift_parser
+liftParser
  = unlines
    [ "type Forest = Data.Map.Map ForestId [Branch]      -- omitted in ParX export."
    , "data GLR_Output a"

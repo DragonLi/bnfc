@@ -26,8 +26,9 @@ import BNFC.Backend.Base
 import BNFC.Options hiding (Backend)
 import BNFC.Backend.Haskell.CFtoTemplate ()
 import BNFC.Backend.Haskell.HsOpts (xmlFile, xmlFileM, absFileM)
-import Data.List (intersperse, nub)
+import Data.List (intersperse, intercalate)
 import Data.Char(toLower)
+import Data.Maybe (fromJust)
 
 type Coding = Bool ---- change to at least three values
 
@@ -41,26 +42,38 @@ makeXML opts typ cf = do
 -- derive a DTD from a BNF grammar. AR 21/8/2004
 cf2DTD :: Coding -> String -> CF -> String
 cf2DTD typ name cf = unlines [
-  tag ("?xml version=\"1.0\" standalone=\"yes\"?"),
+  tag "?xml version=\"1.0\" standalone=\"yes\"?",
   "<!DOCTYPE " ++ name ++ " [",
   elemEmp "Integer",
   elemEmp "Double",
   elemEmp "String",
   if hasIdent cf then elemEmp "Ident" else "",
-  unlines [elemEmp own | (own,_) <- tokenPragmas cf],
+  unlines [elemEmp own | own <- tokenNames cf],
   unlines (map (elemData typ cf) (cf2data cf)),
   "]>"
   ]
 
+-- | >>> tag "test"
+-- "<test>"
+tag :: String -> String
 tag s = "<" ++ s ++ ">"
+
+element :: String -> [String] -> String
 element t ts =
   tag ("!ELEMENT " ++ t ++ " " ++ alts ts)
+
 attlist t a =
   tag ("!ATTLIST " ++ t ++ " " ++ a ++ " CDATA #REQUIRED")
 elemAtt t a ts = element t ts ++++ attlist t a
 elemt t = elemAtt t "name"
-elemc cat fs = unlines $ element cat (map snd fs) : [element f [] | (f,_) <- fs]
+
+elemc :: Cat -> [(Fun, String)] -> String
+elemc cat fs = unlines $ element (show cat) (map snd fs) : [element f [] | (f,_) <- fs]
+
+elemEmp :: String -> String
 elemEmp t = elemAtt t "value" []
+
+alts :: [String] -> String
 alts ts =
   if null ts then "EMPTY" else parenth (unwords (intersperse "|" ts))
 
@@ -75,7 +88,7 @@ endtagDef b = if b then endtagDefConstr else endtagDefNotyp
 -- to show both types and constructors as tags;
 -- lengthy, but validation guarantees type correctness
 -- flag -xmlt
-elemDataConstrs cf (cat,fcs) = elemc cat ([(f,rhsCat cf (f:cs)) | (f,cs) <- fcs])
+elemDataConstrs cf (cat,fcs) = elemc cat [(f,rhsCat cf f cs) | (f,cs) <- fcs]
 efunDefConstrs = "elemFun i t x = [replicate (i+i) ' ' ++ tag t ++ \" \" ++ etag x]"
 endtagDefConstrs = "endtag f c = tag (\"/\" ++ c)"
 
@@ -83,7 +96,7 @@ endtagDefConstrs = "endtag f c = tag (\"/\" ++ c)"
 -- to show constructors as empty tags;
 -- shorter than 0, but validation still guarantees type correctness
 -- flag -xmlt
-elemDataConstr cf (cat,fcs) = elemc cat ([(f,rhsCat cf (f:cs)) | (f,cs) <- fcs])
+elemDataConstr cf (cat,fcs) = elemc cat [(f,rhsCat cf f cs) | (f,cs) <- fcs]
 efunDefConstr = "elemFun i t x = [replicate (i+i) ' ' ++ tag t ++ \" \" ++ etag x]"
 endtagDefConstr = "endtag f c = tag (\"/\" ++ c)"
 
@@ -91,7 +104,7 @@ endtagDefConstr = "endtag f c = tag (\"/\" ++ c)"
 -- constructors as tags, no types.
 -- clumsy DTD, but nice trees. Validation guarantees type correctness
 -- flag -xml
-elemDataNotyp cf (cat,fcs) = unlines [element f [rhsCatNot cf cs] | (f,cs) <- fcs]
+elemDataNotyp cf (_,fcs) = unlines [element f [rhsCatNot cf cs] | (f,cs) <- fcs]
 efunDefNotyp = "elemFun i t x = [replicate (i+i) ' ' ++ tag x]"
 endtagDefNotyp = "endtag f c = tag (\"/\" ++ f)"
 
@@ -102,13 +115,13 @@ endtagDefNotyp = "endtag f c = tag (\"/\" ++ f)"
 -- elemDataAttr cf (cat,fcs) = elemt cat (nub [rhsCat cf cs | (_,cs) <- fcs])
 -- efunDefAttr =  "elemFun i t x = [replicate (i+i) ' ' ++ tag (t ++ \" name = \" ++ x)]"
 
-
-rhsCat cf cs = parenth (concat (intersperse ", " (map (symbCat cf) cs)))
-rhsCatNot cf cs = if null cs then "EMPTY" else concat (intersperse ", " (map (symbCatNot cf) cs))
+rhsCat :: CF -> Fun -> [Cat] -> String
+rhsCat cf fun cs = parenth (intercalate ", " (fun:map (symbCat cf) cs))
+rhsCatNot cf cs = if null cs then "EMPTY" else intercalate", " (map (symbCatNot cf) cs)
 
 symbCat cf c
-  | isList c  = normCatOfList c ++ if isEmptyListCat cf c then "*" else "+"
-  | otherwise = c
+  | isList c  = show (normCatOfList c) ++ if isEmptyListCat cf c then "*" else "+"
+  | otherwise = show c
 
 symbCatNot cf c
   | isList c  = funs (normCatOfList c) ++ if isEmptyListCat cf c then "*" else "+"
@@ -117,13 +130,14 @@ symbCatNot cf c
    funs k = case lookup k (cf2data cf) of
      Just []  -> "EMPTY"
      Just fcs -> parenth $ unwords $ intersperse "|" $ map fst fcs
-     _ -> parenth k ----
+     _ -> parenth (show k) ----
 
 parenth s = "(" ++ s ++ ")"
 
 -- derive an XML printer from a BNF grammar
 cf2XMLPrinter :: Bool -> SharedOptions -> String -> CF -> String
 cf2XMLPrinter typ opts absMod cf = unlines [
+  pragmas opts,
   prologue typ opts absMod,
   integerRule cf,
   doubleRule cf,
@@ -133,9 +147,14 @@ cf2XMLPrinter typ opts absMod cf = unlines [
   rules cf
   ]
 
+pragmas :: SharedOptions -> String
+pragmas opts =
+  if target opts == TargetHaskellGadt
+  then "{-# LANGUAGE TypeSynonymInstances, FlexibleInstances, GADTs #-}"
+  else ""
 
 prologue :: Bool -> SharedOptions -> String -> String
-prologue b opts absMod = unlines [
+prologue b opts _ = unlines [
   "module " ++ xmlFileM opts +++ "where\n",
   "-- pretty-printer generated by the BNF converter\n",
   "import " ++ absFileM opts,
@@ -169,19 +188,19 @@ integerRule cf = showsPrintRule cf "Integer"
 doubleRule cf = showsPrintRule cf "Double"
 stringRule cf = showsPrintRule cf "Char" ++++ "  prtList i xs = elemTok i \"String\" xs"
 
-showsPrintRule cf t = unlines $ [
+showsPrintRule _ t = unlines [
   "instance XPrint " ++ t ++ " where",
   "  prt i x = elemTokS i" +++ "\"" ++ t ++ "\"" +++ "x"
   ]
 
-identRule cf = ownPrintRule cf "Ident"
+identRule cf = ownPrintRule cf (Cat "Ident")
 
-ownPrintRule cf t = unlines $ [
-  "instance XPrint " ++ t ++ " where",
-  "  prt i (" ++ t ++ posn ++ ") = elemTok i" +++ "\"" ++ t ++ "\"" +++ "x"
+ownPrintRule cf cat = unlines [
+  "instance XPrint " ++ show cat ++ " where",
+  "  prt i (" ++ show cat ++ posn ++ ") = elemTok i" +++ "\"" ++ show cat ++ "\"" +++ "x"
   ]
  where
-   posn = if isPositionCat cf t then " (_,x)" else " x"
+   posn = if isPositionCat cf cat then " (_,x)" else " x"
 
 rules :: CF -> String
 rules cf = unlines $
@@ -190,31 +209,31 @@ rules cf = unlines $
    toArgs (cons,args) = ((cons, names (map (checkRes . var) args) (0 :: Int)), ruleOf cons)
    names [] _ = []
    names (x:xs) n
-     | elem x xs = (x ++ show n) : names xs (n+1)
+     | x `elem` xs = (x ++ show n) : names xs (n+1)
      | otherwise = x             : names xs n
-   var ('[':xs)  = var (init xs) ++ "s"
-   var "Ident"   = "id"
-   var "Integer" = "n"
-   var "String"  = "str"
-   var "Char"    = "c"
-   var "Double"  = "d"
-   var xs        = map toLower xs
+   var (ListCat c)  = var c ++ "s"
+   var (Cat "Ident")   = "id"
+   var (Cat "Integer") = "n"
+   var (Cat "String")  = "str"
+   var (Cat "Char")    = "c"
+   var (Cat "Double")  = "d"
+   var cat            = map toLower (show cat)
    checkRes s
-        | elem s reservedHaskell = s ++ "'"
-	| otherwise              = s
+        | s `elem` reservedHaskell = s ++ "'"
+        | otherwise              = s
    reservedHaskell = ["case","class","data","default","deriving","do","else","if",
-			  "import","in","infix","infixl","infixr","instance","let","module",
-			  "newtype","of","then","type","where","as","qualified","hiding"]
-   ruleOf s = maybe undefined id $ lookupRule s (rulesOfCF cf)
+                          "import","in","infix","infixl","infixr","instance","let","module",
+                          "newtype","of","then","type","where","as","qualified","hiding"]
+   ruleOf s = fromJust $ lookupRule s (cfgRules cf)
 
 --- case_fun :: Cat -> [(Constructor,Rule)] -> String
 case_fun cat xs = unlines [
-  "instance XPrint" +++ cat +++ "where",
+  "instance XPrint" +++ show cat +++ "where",
   "  prt i" +++ "e = case e of",
-  unlines $ map (\ ((c,xx),r) ->
+  unlines $ map (\ ((c,xx),_) ->
     "   " ++ c +++ unwords xx +++ "-> concat $ " +++
-    "elemFun i \"" ++ cat ++ "\" \"" ++ c ++ "\"" +++
+    "elemFun i \"" ++ show cat ++ "\" \"" ++ c ++ "\"" +++
     unwords [": prt (i+1)" +++ x | x <- xx] +++ ":" +++
-    "[[replicate (i+i) ' ' ++ endtag \"" ++ c ++ "\" \"" ++ cat ++ "\"]]"
+    "[[replicate (i+i) ' ' ++ endtag \"" ++ c ++ "\" \"" ++ show cat ++ "\"]]"
     ) xs
   ]

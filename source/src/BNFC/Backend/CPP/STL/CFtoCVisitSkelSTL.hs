@@ -40,11 +40,9 @@
 module BNFC.Backend.CPP.STL.CFtoCVisitSkelSTL (cf2CVisitSkel) where
 
 import BNFC.CF
-import BNFC.Utils ((+++), (++++))
-import BNFC.Backend.Common.NamedVariables
-import Data.List
-import Data.Char(toLower, toUpper)
+import BNFC.Utils ((+++))
 import BNFC.Backend.Common.OOAbstract
+import BNFC.Backend.CPP.Naming
 import BNFC.Backend.CPP.STL.STLUtils
 
 --Produces (.H file, .C file)
@@ -68,7 +66,7 @@ mkHFile inPackage cf = unlines [
   "class Skeleton : public Visitor",
   "{",
   "public:",
-  unlines ["  void visit" ++ b ++ "(" ++ b ++ "* p);" |
+  unlines ["  void visit" ++ b ++ "(" ++ b ++ " *p);" |
                               b <- classes, notElem b (defineds cf)],
   unlines ["  void visit" ++ b ++ "(" ++ b ++  " x);" | b <- basics],
   "};",
@@ -91,7 +89,7 @@ mkCFile inPackage cf = unlines [
   nsStart inPackage,
   unlines [
     "void Skeleton::visit" ++ t ++ "(" ++
-       t ++ "* t) {} //abstract class" | t <- absclasses cf],
+       t ++ " *t) {} //abstract class" | t <- absclasses cf],
   unlines [prCon   r  | (_,rs)  <- signatures cf, r <- rs],
   unlines [prList  cb | cb <- listtypes cf],
   unlines [prBasic b  | b  <- tokentypes cf ++ map fst basetypes],
@@ -117,7 +115,7 @@ prBasic c = unlines [
   ]
 
 prList (cl,b) = unlines [
-  "void Skeleton::visit" ++ cl ++ "("++ cl ++ "*" +++ vname ++ ")",
+  "void Skeleton::visit" ++ cl ++ "("++ cl +++ "*" ++ vname ++ ")",
   "{",
   "  for ("++ cl ++"::iterator i = " ++
        vname++"->begin() ; i != " ++vname ++"->end() ; ++i)",
@@ -129,9 +127,9 @@ prList (cl,b) = unlines [
   "}"
   ]
  where
-   vname = map toLower cl
+   vname = mkVariable cl
 
-prCon fcs@(f,cs) = unlines [
+prCon (f,cs) = unlines [
   "void Skeleton::visit" ++ f ++ "(" ++ f ++ " *" ++ v ++ ")",
   "{",
   "  /* Code For " ++ f ++ " Goes Here */",
@@ -140,7 +138,7 @@ prCon fcs@(f,cs) = unlines [
   "}"
  ]
  where
-   v = map toLower f
+   v = mkVariable f
    visitArg (cat,isPt,var) =
      if isPt
        then (v ++ "->" ++ var ++ "->accept(this);")

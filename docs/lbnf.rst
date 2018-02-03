@@ -62,19 +62,24 @@ are given by the nonterminals of the rule, in the same order.
 
 More formally, an LBNF grammar consists of a collection of rules, which
 have the following form (expressed by a regular expression; Appendix
-gives a complete BNF definition of the notation): Ident "." Ident "::="
-(Ident :math:`\mid` String)\* ";" ; The first identifier is the *rule
+gives a complete BNF definition of the notation)::
+
+  Ident "." Ident "::=" (Ident | String)* ";" ;
+
+The first identifier is the *rule
 label*, followed by the *value category*. On the right-hand side of the
-production arrow (::=) is the list of production items. An item is
+production arrow (``::=``) is the list of production items. An item is
 either a quoted string (*terminal*) or a category symbol
 (*non-terminal*). A rule whose value category is :math:`C` is also
 called a *production* for :math:`C`.
 
 Identifiers, that is, rule names and category symbols, can be chosen *ad
 libitum*, with the restrictions imposed by the target language. To
-satisfy Haskell, and C and Java as well, the following rule is imposed
-An identifier is a nonempty sequence of letters, starting with a capital
-letter.
+satisfy Haskell, and C and Java as well, the following rule is imposed:
+
+.. highlights::
+    An identifier is a nonempty sequence of letters, starting with a capital
+    letter.
 
 Additional features
 -------------------
@@ -624,6 +629,25 @@ the integer indicating the highest level (here ``3``) is bigger than the
 highest level actually occurring, or if there are some other levels
 without productions in the grammar.
 
+.. HINT::
+   Coerced categorise (e.g. ``Exp2``) can also be used in other rules. For
+   instance, given the following grammar::
+
+     EInt. Exp2 ::= Integer;
+     EAdd. Exp1 ::= Exp1 "+" Exp2;
+
+   you might want to use ``Exp2`` instead of simply ``Exp`` to force the usage
+   of parenthesis around non-trivial expressions.  For instance, ``Foo. F ::=
+   "foo" Exp2 ;`` will accept ``foo 42`` or ``foo (1 + 1)`` but *not*
+   ``foo 1 + 1``.
+
+   You can even use coerced categories in lists and give them different
+   separators/terminators::
+
+     separator Exp "," ;
+     separator Exp2 ";" ;
+
+
 Rules
 -----
 
@@ -939,8 +963,8 @@ The symbols used in BNF are the following::
 Comments
 --------
 
-| Single-line comments begin with .
-| Multiple-line comments are enclosed with and .
+| Single-line comments begin with `--`.
+| Multiple-line comments are enclosed with `{-` and `-}`.
 
 The syntactic structure of BNF
 ==============================

@@ -40,16 +40,19 @@
 module BNFC.Backend.CPP.NoSTL.CFtoCVisitSkel (cf2CVisitSkel) where
 
 import BNFC.CF
-import BNFC.Utils ((+++), (++++))
+import BNFC.Utils ((+++))
 import BNFC.Backend.Common.NamedVariables
+import BNFC.Backend.CPP.Naming (mkVariable)
 import Data.List
 import Data.Char(toLower, toUpper)
+import Data.Either (lefts)
+import BNFC.PrettyPrint
 
 --Produces (.H file, .C file)
 cf2CVisitSkel :: CF -> (String, String)
 cf2CVisitSkel cf = (mkHFile cf groups, mkCFile cf groups)
  where
-    groups = (fixCoercions (ruleGroups cf))
+    groups = fixCoercions (ruleGroups cf)
 
 
 {- **** Header (.H) File Functions **** -}
@@ -60,7 +63,7 @@ mkHFile cf groups = unlines
  [
   header,
   concatMap prDataH groups,
-  concatMap prUserH user,
+  concatMap (prUserH.show) user,
   footer
  ]
  where
@@ -95,22 +98,22 @@ mkHFile cf groups = unlines
 --Prints out visit functions for a category
 prDataH :: (Cat, [Rule]) -> String
 prDataH (cat, rules) =
- if "List" `isPrefixOf` (identCat cat)
- then concat ["  void visit", cl, "(", cl, "* ", vname, ");"]
- else abstract ++ (concatMap prRuleH rules)
+ if isList cat
+ then concat ["  void visit", cl, "(", cl, " *", vname, ");"]
+ else abstract ++ concatMap prRuleH rules
  where
    cl = identCat (normCat cat)
-   vname = map toLower cl
-   abstract = case lookupRule cat rules of
-    Just x -> ""
-    Nothing ->  "  void visit" ++ cl ++ "(" ++ cl ++ "*" +++ vname ++ "); /* abstract class */\n"
+   vname = mkVariable cl
+   abstract = case lookupRule (show cat) rules of
+    Just _ -> ""
+    Nothing ->  "  void visit" ++ cl ++ "(" ++ cl +++ "*" ++ vname ++ "); /* abstract class */\n"
 
 --Visit functions for a rule.
 prRuleH :: Rule -> String
-prRuleH (Rule fun c cats) | not (isCoercion fun) = concat
-  ["  void visit", fun, "(", fun, "* ", fnm, ");\n"]
+prRuleH (Rule fun _ _) | not (isCoercion fun) = concat
+  ["  void visit", fun, "(", fun, " *", fnm, ");\n"]
    where
-    fnm = map toLower fun
+    fnm = mkVariable fun
 prRuleH _ = ""
 
 
@@ -122,7 +125,7 @@ mkCFile cf groups = concat
    [
     header,
     concatMap (prData user) groups,
-    concatMap prUser user,
+    concatMap (prUser.show) user,
     footer
    ]
   where
@@ -142,7 +145,8 @@ mkCFile cf groups = concat
       "void Skeleton::visit" ++ x' ++ "(" ++ x ++ " p)",
       "{",
       "  /* Code for " ++ x ++ " Goes Here */",
-      "}"
+      "}",
+      ""
      ]
      where
        x' = ((toUpper (head x)) : (map toLower (tail x))) --this is a hack to fix a potential capitalization problem.
@@ -152,18 +156,22 @@ mkCFile cf groups = concat
       "{",
       "  /* Code for Ident Goes Here */",
       "}",
+      "",
       "void Skeleton::visitInteger(Integer i)",
       "{",
       "  /* Code for Integers Goes Here */",
       "}",
+      "",
       "void Skeleton::visitDouble(Double d)",
       "{",
       "  /* Code for Doubles Goes Here */",
       "}",
+      "",
       "void Skeleton::visitChar(Char c)",
       "{",
       "  /* Code for Chars Goes Here */",
       "}",
+      "",
       "void Skeleton::visitString(String s)",
       "{",
       "  /* Code for Strings Goes Here */",
@@ -174,64 +182,73 @@ mkCFile cf groups = concat
 --Visit functions for a category.
 prData :: [UserDef] -> (Cat, [Rule]) -> String
 prData user (cat, rules) =
- if "List" `isPrefixOf` (identCat cat)
+ if isList cat
  then unlines
  [
-  "void Skeleton::visit" ++ cl ++ "("++ cl ++ "*" +++ vname ++ ")",
+  "void Skeleton::visit" ++ cl ++ "("++ cl +++ "*" ++ vname ++ ")",
   "{",
-  "  while(" ++ vname ++ "!= 0)",
+  "  while(" ++ vname +++ "!= 0)",
   "  {",
   "    /* Code For " ++ cl ++ " Goes Here */",
   visitMember,
-  "    " ++ vname ++ " = " ++ vname ++ "->" ++ vname ++ "_;",
+  "    " ++ vname ++ " = " ++ vname ++ "->" ++ vname' ++ "_;",
   "  }",
   "}",
   ""
  ] --Not a list:
- else abstract ++ (concatMap (prRule user) rules)
+ else abstract ++ (concatMap (render . prRule) rules)
  where
    cl = identCat (normCat cat)
-   vname = map toLower cl
+   vname = mkVariable cl
+   vname' = map toLower cl
    ecl = identCat (normCatOfList cat)
    member = map toLower ecl ++ "_"
    visitMember = if isBasic user member
      then "    visit" ++ (funName member) ++ "(" ++ vname ++ "->" ++ member ++ ");"
      else "    " ++ vname ++ "->" ++ member ++ "->accept(this);"
-   abstract = case lookupRule cat rules of
-    Just x -> ""
-    Nothing ->  "void Skeleton::visit" ++ cl ++ "(" ++ cl ++ "*" +++ vname ++ ") {} //abstract class\n\n"
+   abstract = case lookupRule (show cat) rules of
+    Just _ -> ""
+    Nothing ->  "void Skeleton::visit" ++ cl ++ "(" ++ cl +++ "*" ++ vname ++ ") {} //abstract class\n\n"
 
---Visits all the instance variables of a category.
-prRule :: [UserDef] -> Rule -> String
-prRule user (Rule fun c cats) | not (isCoercion fun) = unlines
-  [
-   "void Skeleton::visit" ++ fun ++ "(" ++ fun ++ "*" +++ fnm ++ ")",
-   "{",
-   "  /* Code For " ++ fun ++ " Goes Here */",
-   "",
-   cats' ++ "}\n"
+-- | Visits all the instance variables of a category.
+-- >>> prRule (Rule "F" (Cat "S") [Right "X", Left (TokenCat "A"), Left (Cat "B")])
+-- void Skeleton::visitF(F *f)
+-- {
+--   /* Code For F Goes Here */
+-- <BLANKLINE>
+--   visitA(f->a_);
+--   f->b_->accept(this);
+-- }
+-- <BLANKLINE>
+prRule :: Rule -> Doc
+prRule (Rule fun _ cats) | not (isCoercion fun) = vcat
+  [ text ("void Skeleton::visit" ++ fun ++ "(" ++ fun +++ "*" ++ fnm ++ ")")
+  , codeblock 2
+      [ text ("/* Code For " ++ fun ++ " Goes Here */")
+      , ""
+      , cats'
+      ]
+  , ""
   ]
    where
-    cats' = if allTerms cats
-        then ""
-    	else (concatMap (prCat user fnm) (fixOnes (numVars [] cats)))
-    allTerms [] = True
-    allTerms ((Left z):zs) = False
-    allTerms (z:zs) = allTerms zs
-    fnm = map toLower fun
-prRule user _ = ""
+    cats' = vcat (map (prCat fnm) (lefts (numVars cats)))
+    fnm = mkVariable fun
+prRule _ = ""
 
---Prints the actual instance-variable visiting.
-prCat user fnm c =
-  case c of
-    (Right t) -> ""
-    (Left nt) -> if isBasic user nt
-       then "  visit" ++ (funName nt) ++ "(" ++ fnm ++ "->" ++ nt ++ ");\n"
-       else if "list" `isPrefixOf` nt
-         then "  if (" ++ fnm ++ "->" ++ nt ++ ") {" ++ accept ++ "}\n"
-	 else "  " ++ accept ++ "\n"
-      where
-       accept = fnm ++ "->" ++ nt ++ "->accept(this);"
+-- | Prints the actual instance-variable visiting.
+-- >>> prCat "Myfun" (TokenCat "Integer", "integer_")
+-- visitInteger(Myfun->integer_);
+-- >>> prCat "Myfun" (ListCat (Cat "A"), "lista_")
+-- if (Myfun->lista_) {Myfun->lista_->accept(this);}
+-- >>> prCat "Myfun" (Cat "A", "a_")
+-- Myfun->a_->accept(this);
+prCat :: String -> (Cat, Doc) -> Doc
+prCat fnm (cat, nt)
+  | isTokenCat cat = "visit" <> text (funName (render nt)) <> parens (fname <> "->" <> nt) <> ";"
+  | isList cat = "if" <+> parens (fname <> "->" <> nt) <+> braces accept
+  | otherwise = accept
+  where accept = fname <> "->" <> nt <> "->accept(this);"
+        fname = text fnm
 
 --Just checks if something is a basic or user-defined type.
 --This is because you don't -> a basic non-pointer type.
@@ -246,7 +263,7 @@ isBasic user v =
     else if "ident_" `isPrefixOf` v then True
     else False
   where
-   user' = map (map toLower) user
+   user' = map (map toLower.show) user
 
 --The visit-function name of a basic type
 funName :: String -> String
