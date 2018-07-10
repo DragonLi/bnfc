@@ -73,9 +73,9 @@ makeCSharp opts cf = do
           printer      = cf2csharpprinter namespace cf
       mkfile "Absyn.cs" absyn
       mkfile (namespace ++ ".l") gplex
-      liftIO $ putStrLn "   (Tested with GPLEX RC1)"
+      liftIO $ putStrLn "   (Tested with GPLEX 1.2.2)"
       mkfile (namespace ++ ".y") gppg
-      liftIO $ putStrLn "   (Tested with GPPG 1.0)"
+      liftIO $ putStrLn "   (Tested with GPPG 1.5.2)"
       mkfile "AbstractVisitSkeleton.cs" absSkeleton
       mkfile "VisitSkeleton.cs" skeleton
       mkfile "Printer.cs" printer
@@ -95,16 +95,18 @@ writeMakefile opts namespace = do
   liftIO $ putStrLn "Generated Makefile, which uses mono. You may want to modify the paths to"
   liftIO $ putStrLn "GPLEX and GPPG - unless you are sure that they are globally accessible (the"
   liftIO $ putStrLn "default commands are \"mono gplex.exe\" and \"mono gppg.exe\", respectively."
-  liftIO $ putStrLn "The Makefile assumes that ShiftReduceParser.dll is located in ./bin and that"
+  liftIO $ putStrLn "The Makefile assumes that ShiftReduceParser.dll is located in . and that"
   liftIO $ putStrLn "is also where test.exe will be generated."
+  liftIO $ putStrLn "compiled version of gplex.exe, gppg.exe and ShiftReduceParser.dll can be found"
+  liftIO $ putStrLn "at https://github.com/DragonLi/GpLexGppg"
   liftIO $ putStrLn "-----------------------------------------------------------------------------"
   liftIO $ putStrLn ""
   where
     makefile = vcat
-        ["MONO = mono", "MONOC = gmcs"
+        ["MONO = mono", "MONOC = mcs"
         , "MONOCFLAGS = -optimize -reference:${PARSERREF}"
         , "GPLEX = ${MONO} gplex.exe", "GPPG = ${MONO} gppg.exe"
-        , "PARSERREF = bin/ShiftReduceParser.dll"
+        , "PARSERREF = ShiftReduceParser.dll"
         , "CSFILES = Absyn.cs Parser.cs Printer.cs Scanner.cs Test.cs VisitSkeleton.cs AbstractVisitSkeleton.cs"
         , Makefile.mkRule "all" [ "test" ]
             []
@@ -117,7 +119,7 @@ writeMakefile opts namespace = do
             , "rm -f Makefile" ]
         , Makefile.mkRule "test" [ "Parser.cs", "Scanner.cs" ]
             [ "@echo \"Compiling test...\""
-            , "${MONOC} ${MONOCFLAGS} -out:bin/test.exe ${CSFILES}" ]
+            , "${MONOC} ${MONOCFLAGS} -out:test.exe ${CSFILES}" ]
         , Makefile.mkRule "Scanner.cs" [ namespace <.> "l" ]
             [ "${GPLEX} /out:$@ " ++ namespace <.> "l" ]
         , Makefile.mkRule "Parser.cs" [ namespace <.> "y" ]
@@ -130,16 +132,19 @@ writeVisualStudioFiles namespace = do
   mkfile (namespace ++ ".csproj") (csproj guid)
   mkfile (namespace ++ ".sln") (sln guid)
   mkfile "run-gp.bat" batchfile
+  mkfile "run-gp.sh" batchfileLinux
   liftIO $ putStrLn ""
   liftIO $ putStrLn "-----------------------------------------------------------------------------"
   liftIO $ putStrLn "Visual Studio solution (.sln) and project (.csproj) files were written."
   liftIO $ putStrLn "The project file has a reference to GPLEX/GPPG's ShiftReduceParser. You will"
-  liftIO $ putStrLn "have to either copy this file to bin\\ShiftReduceParser.dll or change the"
+  liftIO $ putStrLn "have to either copy this file to ShiftReduceParser.dll or change the"
   liftIO $ putStrLn "reference so that it points to the right location (you can do this from"
   liftIO $ putStrLn "within Visual Studio)."
   liftIO $ putStrLn "Additionally, the project includes Parser.cs and Scanner.cs. These have not"
   liftIO $ putStrLn "been generated yet. You can use the run-gp.bat file to generate them, but"
   liftIO $ putStrLn "note that it requires gppg and gplex to be in your PATH."
+  liftIO $ putStrLn "compiled version of gplex.exe, gppg.exe and ShiftReduceParser.dll can be found"
+  liftIO $ putStrLn "at https://github.com/DragonLi/GpLexGppg"
   liftIO $ putStrLn "-----------------------------------------------------------------------------"
   liftIO $ putStrLn ""
   where
@@ -147,6 +152,11 @@ writeVisualStudioFiles namespace = do
       "@echo off",
       "gppg /gplex " ++ namespace ++ ".y > Parser.cs",
       "gplex /verbose /out:Scanner.cs " ++ namespace ++ ".l"
+      ]
+    batchfileLinux = unlines [
+      "#!/bin/bash",
+      "mono gppg.exe /gplex " ++ namespace ++ ".y > Parser.cs",
+      "mono gplex.exe /verbose /out:Scanner.cs " ++ namespace ++ ".l"
       ]
     sln guid = unlines [
       "Microsoft Visual Studio Solution File, Format Version 9.00",
@@ -222,8 +232,9 @@ writeVisualStudioFiles namespace = do
       "  <ItemGroup>",
       "    <Reference Include=\"ShiftReduceParser, Version=0.0.0.0, Culture=neutral, processorArchitecture=MSIL\">",
       "      <SpecificVersion>False</SpecificVersion>",
-      "      <HintPath>bin\\ShiftReduceParser.dll</HintPath>",
+      "      <HintPath>ShiftReduceParser.dll</HintPath>",
       "    </Reference>",
+      "    <Reference Include=\"System\" />",
       "  </ItemGroup>",
       "  <ItemGroup>",
       "    <None Include=\"" ++ namespace ++ ".cf\" />",
@@ -309,7 +320,10 @@ csharptest namespace cf = unlines [
 projectguid :: MkFiles String
 projectguid = do
   maybeFilePath <- findDirectory
-  maybe getBadGUID getGoodGUID maybeFilePath
+  maybeFP <- case maybeFilePath of
+    Nothing -> liftIO $ do (findExecutable "uuidgen")
+    _ -> return maybeFilePath
+  maybe getBadGUID getGoodGUID maybeFP
   where
     getBadGUID :: MkFiles String
     getBadGUID = do
@@ -334,4 +348,5 @@ projectguid = do
       if exists
         then return (Just (toolpath ++ "\\uuidgen.exe"))
         -- this handles the case when the user was clever enough to add the directory to his/her PATH
-        else findExecutable "uuidgen.exe"
+        else
+          findExecutable "uuidgen.exe"
