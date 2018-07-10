@@ -237,7 +237,7 @@ prHashCode _ _ vars = unlinesInline [
     aPrime = 37
     prHashVars [] = show aPrime
     prHashVars (v:vs) =
-        foldl (\ r v -> show aPrime ++ "*" ++ "(" ++ r ++ ")+" ++ hashVar v) v vs
+        foldl (\ r v -> show aPrime ++ "*" ++ "(" ++ r ++ ")+" ++ hashVar v) (hashVar v) vs
     hashVar var = "this." ++ var ++ ".GetHashCode()"
 
 prList :: Namespace -> (String,Bool) -> String
