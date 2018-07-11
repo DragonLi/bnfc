@@ -150,7 +150,7 @@ union namespace cats = unlines $ filter (\x -> x /= "\n") [
 declarations :: CF -> String
 declarations cf = unlinesInline $ map (typeNT cf) (positionCats cf ++ allCats cf)
  where --don't define internal rules
-   typeNT cf nt | (isPositionCat cf nt || rulesForCat cf nt /= []) = "%type <" ++ (varName (show$normCat nt)) ++ "> " ++ (show nt)
+   typeNT cf nt | (isPositionCat cf nt || rulesForCat cf nt /= []) = "%type <" ++ (varName (show$normCat nt)) ++ "> " ++ (identCat nt)
    typeNT _ _ = ""
 
 --declares terminal types.

@@ -97,8 +97,8 @@ writeMakefile opts namespace = do
   liftIO $ putStrLn "default commands are \"mono gplex.exe\" and \"mono gppg.exe\", respectively."
   liftIO $ putStrLn "The Makefile assumes that ShiftReduceParser.dll is located in . and that"
   liftIO $ putStrLn "is also where test.exe will be generated."
-  liftIO $ putStrLn "compiled version of gplex.exe, gppg.exe and ShiftReduceParser.dll can be found"
-  liftIO $ putStrLn "at https://github.com/DragonLi/GpLexGppg"
+  liftIO $ putStrLn "A tested version of gplex.exe, gppg.exe and ShiftReduceParser.dll"
+  liftIO $ putStrLn "can be found at https://github.com/DragonLi/GpLexGppg"
   liftIO $ putStrLn "-----------------------------------------------------------------------------"
   liftIO $ putStrLn ""
   where
@@ -143,8 +143,8 @@ writeVisualStudioFiles namespace = do
   liftIO $ putStrLn "Additionally, the project includes Parser.cs and Scanner.cs. These have not"
   liftIO $ putStrLn "been generated yet. You can use the run-gp.bat file to generate them, but"
   liftIO $ putStrLn "note that it requires gppg and gplex to be in your PATH."
-  liftIO $ putStrLn "compiled version of gplex.exe, gppg.exe and ShiftReduceParser.dll can be found"
-  liftIO $ putStrLn "at https://github.com/DragonLi/GpLexGppg"
+  liftIO $ putStrLn "A tested version of gplex.exe, gppg.exe and ShiftReduceParser.dll"
+  liftIO $ putStrLn "can be found at https://github.com/DragonLi/GpLexGppg"
   liftIO $ putStrLn "-----------------------------------------------------------------------------"
   liftIO $ putStrLn ""
   where
