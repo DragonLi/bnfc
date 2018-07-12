@@ -6,7 +6,7 @@ layout toplevel ;
 
 -- top level
 
-Module.  Module ::= "{" [Decl] "}" ;
+ModuleD.  Module ::= "{" [Decl] "}" ;
 
 separator  Decl ";" ;
 separator  Def ";" ;
@@ -17,7 +17,7 @@ DDef.    Decl ::= [DefAttr] Def ;
 DImp.    Decl ::= Import ;
 
 Value.   Def  ::= AIdent [VarDecl] "::" Exp "=" Exp ;
-Binding. Def  ::= AIdent "=" Exp ;
+BindingD.Def  ::= AIdent "=" Exp ;
 Package. Def  ::= "package" AIdent [Typing] "where" PackageBody ;
 Open.    Def  ::= "open" Exp "use" [OpenArg] ;
 Data.    Def  ::= "data" AIdent [Typing] "=" [Constructor] ;
@@ -123,7 +123,7 @@ Public   . DefAttr ::= "public" ;
 Abstract . DefAttr ::= "abstract" ;
 Concrete . DefAttr ::= "concrete" ;
 
-Import  .  Import  ::= "import" String ";" ;
+ImportD  .  Import  ::= "import" String ";" ;
 
 separator  DefAttr     "" ;
 separator  AIdent      "" ;

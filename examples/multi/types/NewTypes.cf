@@ -1,0 +1,26 @@
+entrypoints Theory ;
+
+Th. Theory ::= [Jmt] ;
+
+terminator Jmt ";" ;
+JTyp. Jmt ::= Ident "::" Typ ;
+JDef. Jmt ::= Exp "=" Exp ;
+EIdent. Exp2 ::= Ident ;
+TIdent. Typ2 ::= Ident ;
+
+EApp. Exp1 ::= Exp2 [Exp2] ;
+TApp. Typ1 ::= Typ1 [Exp2] ;
+
+EAbs. Exp ::= "\\" Ident "->" Exp ;
+
+TPro. Typ ::= "(" Ident "::" Typ ")" "->" Typ ;
+
+TArr. Typ ::= Typ1 "->" Typ ;
+
+separator nonempty Exp2 "" ;
+
+coercions Exp 2 ;
+coercions Typ 2 ;
+
+comment "{-" "-}" ;
+
