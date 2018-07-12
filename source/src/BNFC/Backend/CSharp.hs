@@ -300,6 +300,7 @@ csharptest namespace cf = unlines [
   "        catch(Exception e)",
   "        {",
   "          Console.Out.WriteLine(\"Parse NOT Successful:\");",
+  "          Console.Out.WriteLine(scanner.LastErrorStr());",
   "          Console.Out.WriteLine(e.Message);",
   "          Console.Out.WriteLine(\"\");",
   "          Console.Out.WriteLine(\"Stack Trace:\");",
