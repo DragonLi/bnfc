@@ -288,30 +288,45 @@ shToken namespace token = unlinesInline [
 entrypoints :: Namespace -> CF -> String
 entrypoints namespace cf = unlinesInline [
   "    #region Print Entry Points",
-  unlinesInlineMap prEntryPoint (allCats cf),
+  unlinesInlineMap prEntryPoint allUsingCats,
   "    #endregion",
   "    ",
   "    #region Show Entry Points",
-  unlinesInlineMap shEntryPoint (allCats cf),
+  defineShowSemanticValueWithTag allUsingCats,
+  unlinesInlineMap shEntryPoint allUsingCats,
   "    #endregion"
   ]
   where
-    prEntryPoint cat | (normCat cat) == cat = unlinesInline [
+    allUsingCats = filter (\cat -> (normCat cat) == cat) (allCats cf)
+    defineSemanticCase cat = let catNm = identCat cat
+      in unlinesInline[
+      "         case Parser.SemanticValueTag." ++ catNm ++ "Value:",
+      "              return Show(currentValue." ++ varname catNm ++ ");"
+      ]
+    defineShowSemanticValueWithTag catList = unlinesInline[
+      "    public static string Show(ValueType currentValue, Parser.SemanticValueTag currentValueTag)",
+      "    {",
+      "      switch (currentValueTag)",
+      "      {",
+      unlinesInlineMap defineSemanticCase catList,
+      "      }",
+      "      return \"Undefined Semantic Value\";",
+      "    }"
+      ]
+    prEntryPoint cat = unlinesInline [
       "    public static string Print(" ++ identifier namespace (identCat cat) ++ " cat)",
       "    {",
       "      PrintInternal(cat, 0);",
       "      return GetAndReset();",
       "    }"
       ]
-    prEntryPoint _ = ""
-    shEntryPoint cat | (normCat cat) == cat = unlinesInline [
+    shEntryPoint cat = unlinesInline [
       "    public static String Show(" ++ identifier namespace (identCat cat) ++ " cat)",
       "    {",
       "      ShowInternal(cat);",
       "      return GetAndReset();",
       "    }"
       ]
-    shEntryPoint _ = ""
 
 prData :: Namespace ->  [UserDef] -> (Cat, [Rule]) -> String
 prData namespace user (cat, rules)

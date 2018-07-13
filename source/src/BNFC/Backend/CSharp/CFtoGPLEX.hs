@@ -116,6 +116,12 @@ prelude namespace = unlines [
   "        {",
   "          this.strBuffer = new System.Text.StringBuilder();",
   "        }",
+  "        string yyLastErr;",
+  "        public string YYLastError { get { return yyLastErr; } }",
+  "        public override void yyerror(string format, params object[] args)",
+  "        {",
+  "          yyLastErr=string.Format(format, args);",
+  "        }",
   "",
   "%}",
   ""

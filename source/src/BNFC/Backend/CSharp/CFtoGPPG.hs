@@ -80,10 +80,23 @@ header namespace cf = unlines [
   "",
   "%namespace " ++ namespace,
   "%{",
+  "   public SemanticValueTag CurrentValueTag = SemanticValueTag.Undefined;",
+  "   public ValueType CurrentValue { get { return CurrentSemanticValue; } }",
   definedRules namespace cf,
-  unlinesInline $ map (parseMethod namespace) (allCatsNorm cf ++ positionCats cf),
+  unlinesInline $ map (parseMethod namespace) catsWithPos,
+  definedValueTag allUsingCats,
   "%}"
   ]
+  where
+    allUsingCats = allCatsNorm cf
+    catsWithPos = allUsingCats ++ positionCats cf
+    enumNameOfCat cat = "      " ++ identCat (normCat cat) ++ "Value,"
+    definedValueTag catList = unlines [
+      "   public enum SemanticValueTag{",
+      "      Undefined = -1,",
+      unlinesInline $ map enumNameOfCat catList,
+      "   }"
+      ]
 
 definedRules :: Namespace -> CF -> String
 definedRules _ cf = unlinesInline [
@@ -199,7 +212,10 @@ constructRule namespace cf env rules nt =
     revs = cfgReversibleCats cf
     eps = allEntryPoints cf
     isEntry nt = if elem nt eps then True else False
-    result = if isEntry nt then (resultName (identCat (normCat nt))) ++ "= $$;" else ""
+    result = if isEntry nt 
+                then let normalizedCatName = identCat (normCat nt)
+                     in (resultName normalizedCatName) ++ "= $$;CurrentValueTag=SemanticValueTag."++normalizedCatName++"Value;"
+                else ""
 
 -- Generates a string containing the semantic action.
 -- This was copied from CFtoCup15, with only a few small modifications
