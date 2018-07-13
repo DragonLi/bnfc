@@ -120,7 +120,7 @@ prelude namespace = unlines [
   "        public string YYLastError { get { return yyLastErr; } }",
   "        public override void yyerror(string format, params object[] args)",
   "        {",
-  "          yyLastErr=string.Format(format, args);",
+  "          yyLastErr=format;",
   "        }",
   "",
   "%}",
