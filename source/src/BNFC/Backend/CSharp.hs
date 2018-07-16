@@ -150,12 +150,12 @@ writeVisualStudioFiles namespace = do
   where
     batchfile = unlines [
       "@echo off",
-      "gppg /gplex " ++ namespace ++ ".y > Parser.cs",
+      "gppg /gplex /verbose /report " ++ namespace ++ ".y > Parser.cs",
       "gplex /verbose /out:Scanner.cs " ++ namespace ++ ".l"
       ]
     batchfileLinux = unlines [
       "#!/bin/bash",
-      "mono gppg.exe /gplex " ++ namespace ++ ".y > Parser.cs",
+      "mono gppg.exe /gplex /verbose /report " ++ namespace ++ ".y > Parser.cs",
       "mono gplex.exe /verbose /out:Scanner.cs " ++ namespace ++ ".l"
       ]
     sln guid = unlines [
