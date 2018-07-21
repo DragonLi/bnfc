@@ -416,14 +416,22 @@ shData namespace user (cat, rules)
   | otherwise = unlinesInline [
     "    private static void ShowInternal(" ++ identifier namespace (identCat (normCat cat)) ++ " p)",
     "    {",
-    unlinesInline $ map (shRule namespace) rules,
+    -- first rule starts with "if", the rest of them start with "else if".
+    -- this isn't very pretty, but does the job and produces nice code.
+    shRule namespace Nothing firstRule,
+    unlinesInline $ map (shRule namespace (Just "else ")) otherRules,
     "    }"
     ]
+  where
+      -- Removes the rules at the beginning of the list which won't be used by the prRule function.
+      rules' = dropWhile (\r -> isCoercion (funRule r) || isDefinedRule (funRule r)) rules
+      firstRule = head rules'
+      otherRules = tail rules'
 
-shRule :: Namespace -> Rule -> String
-shRule namespace (Rule fun _c cats)
+shRule :: Namespace -> Maybe String  -> Rule -> String
+shRule namespace maybeElse (Rule fun _c cats)
   | not (isCoercion fun || isDefinedRule fun) = unlinesInline [
-    "      if(p is " ++ identifier namespace fun ++ ")",
+    "      " ++ fromMaybe "" maybeElse ++ "if(p is " ++ identifier namespace fun ++ ")",
     "      {",
     "        " ++ identifier namespace fun +++ fnm ++ " = (" ++ identifier namespace fun ++ ")p;",
     lparen,
@@ -443,7 +451,7 @@ shRule namespace (Rule fun _c cats)
     allTerms ((Left {}):_) = False
     allTerms (_:zs) = allTerms zs
     fnm = '_' : map toLower fun
-shRule _nm _ = ""
+shRule _ _ _ = ""
 
 shList :: [UserDef] -> Cat -> [Rule] -> String
 shList _ _ _rules = unlinesInline [
