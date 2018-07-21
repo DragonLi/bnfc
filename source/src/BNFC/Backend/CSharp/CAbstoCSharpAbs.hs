@@ -98,7 +98,7 @@ prDataMember True  = "    [DataMember]"
 prTokenBaseType :: Bool -> String
 prTokenBaseType useWCF =  unlinesInline [
   prDataContract useWCF [],
-  "  public class TokenBaseType",
+  "  public partial class TokenBaseType",
   "  {",
   prDataMember useWCF,
   "    private string str;",
@@ -119,7 +119,7 @@ prTokenBaseType useWCF =  unlinesInline [
 prToken :: Namespace -> Bool -> String -> String
 prToken namespace useWCF name = unlinesInline [
   prDataContract useWCF [],
-  "  public class " ++ name ++ " : " ++ identifier namespace "TokenBaseType",
+  "  public partial class " ++ name ++ " : " ++ identifier namespace "TokenBaseType",
   "  {",
   "    public " ++ name ++ "(string str) : base(str)",
   "    {",
@@ -134,7 +134,7 @@ prToken namespace useWCF name = unlinesInline [
 prAbs :: Namespace -> Bool -> (String, [String]) -> String
 prAbs namespace useWCF (cat, funs) = unlinesInline [
   prDataContract useWCF funs,
-  "  public abstract class " ++ cat,
+  "  public abstract partial class " ++ cat,
   "  {",
   "    public abstract R Accept<R,A>(" ++ identifier namespace cat ++ ".Visitor<R,A> v, A arg);",
   prVisitor namespace funs,
@@ -242,7 +242,7 @@ prHashCode _ _ vars = unlinesInline [
 
 prList :: Namespace -> (String,Bool) -> String
 prList namespace (c,_) = unlinesInline [
-  "  public class " ++ c ++ " : List<" ++ identifier namespace (typename bas) ++ ">",
+  "  public partial class " ++ c ++ " : List<" ++ identifier namespace (typename bas) ++ ">",
   "  {",
   "  }"
   ]
