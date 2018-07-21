@@ -239,13 +239,16 @@ generateAction namespace nt f rev mbs
   | isConsFun f && rev     = "$$ = " ++ p_1 ++ "; " ++ p_1 ++ ".Add(" ++ p_2 ++ ");"
   | isCoercion f           = "$$ = " ++ p_1 ++ ";"
   | isDefinedRule f        = "$$ = " ++ f ++ "_" ++ "(" ++ concat (intersperse "," ms) ++ ");"
-  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++ ",Scanner,Context);"
+  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++lastSep++ "Scanner,Context);"
   where
     c = if isNilFun f || isOneFun f || isConsFun f
         then identCat (normCat nt) else f
     ms = map fst mbs
     p_1 = ms!!0
     p_2 = ms!!1
+    lastSep = case ms of
+              [] -> ""
+              _  -> ","
 
 
 -- Generate patterns and a set of metavariables indicating
