@@ -268,12 +268,11 @@ prAccept namespace cat maybeOverride = unlinesInline [
 -- The constructor assigns the parameters to the corresponding instance variables.
 prConstructor :: Namespace -> CSharpAbsRule -> String
 prConstructor namespace (f,cs) = unlinesInline [
-  "    public " ++ f ++ "(" ++ conargs ++ lastSep ++ "AbstractScanner<ValueType,LexLocation> scanner,ParsingContext ctx)",
+  "    public " ++ f ++ "(" ++ conargs ++ lastSep ++ "int tokLin,int tokCol,ParsingContext ctx)",
   "    {",
   unlinesInline ["      " ++ c ++ " = " ++ p ++ ";" | (c,p) <- zip cvs pvs],
-  "       var loc = scanner.yylloc;",
-  "       startLine = loc.StartLine;",
-  "       startColumn = loc.StartColumn;",
+  "       startLine = tokLin;",
+  "       startColumn = tokCol;",
   "       FirstPassTranverse(ctx);",
   "    }"
   ]

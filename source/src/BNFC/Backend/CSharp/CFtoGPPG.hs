@@ -83,6 +83,7 @@ header namespace cf env = unlines [
   "   public SemanticValueTag CurrentValueTag = SemanticValueTag.Undefined;",
   "   public ValueType CurrentValue { get { return CurrentSemanticValue; } }",
   "   public " ++ namespace ++ ".Absyn.ParsingContext Context { get; set; }",
+  "   private Scanner _scanner;",
   definedRules namespace cf,
   defineParserConstructor env,
   unlinesInline $ map (parseMethod namespace) catsWithPos,
@@ -92,6 +93,7 @@ header namespace cf env = unlines [
   where
     defineParserConstructor env = unlines[
       "   public Parser(Scanner s):base(s){",
+      "     _scanner = s;",
       "     if (aliases == null) aliases=new Dictionary<int, string>();",
       "     if (aliases.Count > 0) return;",
       unlinesInline $ map defineSymbolAlias env,
@@ -239,7 +241,7 @@ generateAction namespace nt f rev mbs
   | isConsFun f && rev     = "$$ = " ++ p_1 ++ "; " ++ p_1 ++ ".Add(" ++ p_2 ++ ");"
   | isCoercion f           = "$$ = " ++ p_1 ++ ";"
   | isDefinedRule f        = "$$ = " ++ f ++ "_" ++ "(" ++ concat (intersperse "," ms) ++ ");"
-  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++lastSep++ "Scanner,Context);"
+  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++lastSep++ "_scanner.yyline,_scanner.yycol,Context);"
   where
     c = if isNilFun f || isOneFun f || isConsFun f
         then identCat (normCat nt) else f
