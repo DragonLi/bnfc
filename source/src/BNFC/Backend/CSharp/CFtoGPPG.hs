@@ -82,6 +82,7 @@ header namespace cf env = unlines [
   "%{",
   "   public SemanticValueTag CurrentValueTag = SemanticValueTag.Undefined;",
   "   public ValueType CurrentValue { get { return CurrentSemanticValue; } }",
+  "   public " ++ namespace ++ ".Absyn.ParsingContext Context { get; set; }",
   definedRules namespace cf,
   defineParserConstructor env,
   unlinesInline $ map (parseMethod namespace) catsWithPos,
@@ -238,7 +239,7 @@ generateAction namespace nt f rev mbs
   | isConsFun f && rev     = "$$ = " ++ p_1 ++ "; " ++ p_1 ++ ".Add(" ++ p_2 ++ ");"
   | isCoercion f           = "$$ = " ++ p_1 ++ ";"
   | isDefinedRule f        = "$$ = " ++ f ++ "_" ++ "(" ++ concat (intersperse "," ms) ++ ");"
-  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++ ");"
+  | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++ ",Scanner,Context);"
   where
     c = if isNilFun f || isOneFun f || isConsFun f
         then identCat (normCat nt) else f

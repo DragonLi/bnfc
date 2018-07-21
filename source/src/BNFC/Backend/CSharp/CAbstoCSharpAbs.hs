@@ -56,12 +56,15 @@ cabs2csharpabs namespace cabs useWCF = unlinesInline [
   "using System;",
   if useWCF then "using System.Runtime.Serialization;" else "",
   "using System.Collections.Generic;",
+  "using QUT.Gppg;",
   "namespace " ++ namespace ++ ".Absyn",
   "{",
   "  #region Token Classes",
   prTokenBaseType useWCF,
   unlinesInlineMap (prToken namespace useWCF) (tokentypes cabs),
   "  #endregion",
+  "  ",
+  "  public partial class ParsingContext{}",
   "  ",
   "  #region Abstract Syntax Classes",
   unlinesInlineMap (prAbs namespace useWCF) abstractclasses,
@@ -155,8 +158,11 @@ prVisitor namespace funs = unlinesInline
 prCon :: Namespace -> Bool -> (String,CSharpAbsRule) -> String
 prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   prDataContract useWCF [],
-  "  public class " ++ f ++ ext,
+  "  public partial class " ++ f ++ ext,
   "  {",
+  "    private int startLine;",
+  "    private int startColumn;",
+  "    partial void FirstPassTranverse(ParsingContext ctx);",
   -- Instance variables
   unlines [prInstVar typ var | (typ,_,var,_) <- cs],
   prConstructor namespace (f,cs),
@@ -262,9 +268,13 @@ prAccept namespace cat maybeOverride = unlinesInline [
 -- The constructor assigns the parameters to the corresponding instance variables.
 prConstructor :: Namespace -> CSharpAbsRule -> String
 prConstructor namespace (f,cs) = unlinesInline [
-  "    public " ++ f ++ "(" ++ conargs ++ ")",
+  "    public " ++ f ++ "(" ++ conargs ++ ",AbstractScanner<ValueType,LexLocation> scanner,ParsingContext ctx)",
   "    {",
   unlinesInline ["      " ++ c ++ " = " ++ p ++ ";" | (c,p) <- zip cvs pvs],
+  "       var loc = scanner.yylloc;",
+  "       startLine = loc.StartLine;",
+  "       startColumn = loc.StartColumn;",
+  "       FirstPassTranverse(ctx);",
   "    }"
   ]
  where
