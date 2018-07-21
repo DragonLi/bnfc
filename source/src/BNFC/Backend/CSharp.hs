@@ -51,7 +51,7 @@ import BNFC.Backend.CSharp.CFtoCSharpPrinter
 import BNFC.Backend.CSharp.CSharpUtils
 import BNFC.PrettyPrint hiding ((<.>), (<>))
 import System.Environment (getEnv)
-import System.FilePath ((<.>))
+import System.FilePath ((<.>),replaceExtension)
 import System.Directory
 import System.IO
 import System.IO.Error (catchIOError)
@@ -59,6 +59,8 @@ import System.Process
 import Data.Maybe
 import Control.Monad (when)
 import qualified BNFC.Backend.Common.Makefile as Makefile
+import qualified BNFC.Backend.Latex as Tex
+import Text.Printf
 -- Control.Monad.State
 
 makeCSharp :: SharedOptions -> CF -> MkFiles ()
@@ -80,6 +82,9 @@ makeCSharp opts cf = do
       mkfile "VisitSkeleton.cs" skeleton
       mkfile "Printer.cs" printer
       mkfile "Test.cs" (csharptest namespace cf)
+      let name = lang opts
+      let texfile = name <.> "tex"
+      mkfile texfile (Tex.cfToLatex name cf)
       when vsfiles (writeVisualStudioFiles namespace)
       when makefile (writeMakefile opts namespace)
   where makefile = isJust $ make opts
@@ -112,7 +117,7 @@ writeMakefile opts namespace = do
             []
         , Makefile.mkRule "clean" []
             -- peteg: don't nuke what we generated - move that to the "vclean" target.
-            [ "rm -f " ++ namespace ++ ".pdf test" ]
+            [ "rm -f " ++ namespace ++ ".pdf test " ++ unwords [pdffile, auxfile, logfile] ]
         , Makefile.mkRule "distclean" [ "clean" ]
             [ "rm -f ${CSFILES}"
             , "rm -f " ++ unwords [namespace <.> ext | ext <- [ "l","y","tex" ]]
@@ -124,7 +129,15 @@ writeMakefile opts namespace = do
             [ "${GPLEX} /out:$@ " ++ namespace <.> "l" ]
         , Makefile.mkRule "Parser.cs" [ namespace <.> "y" ]
             [ "${GPPG} /gplex " ++ namespace <.> "y > $@" ]
+        , Makefile.mkRule "pdf" [texfile]
+            [ printf "pdflatex %s" texfile ]
         ]
+    name = lang opts
+    texfile = name <.> "tex"  
+    pdffile = replaceExtension texfile "pdf"
+    auxfile = replaceExtension texfile "aux"
+    logfile = replaceExtension texfile "log"
+
 
 writeVisualStudioFiles :: Namespace -> MkFiles ()
 writeVisualStudioFiles namespace = do
