@@ -139,6 +139,8 @@ prAbs namespace useWCF (cat, funs) = unlinesInline [
   prDataContract useWCF funs,
   "  public abstract partial class " ++ cat,
   "  {",
+  "    protected int startLine;",
+  "    protected int startColumn;",
   "    public abstract R Accept<R,A>(" ++ identifier namespace cat ++ ".Visitor<R,A> v, A arg);",
   prVisitor namespace funs,
   "  }"
@@ -160,8 +162,6 @@ prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   prDataContract useWCF [],
   "  public partial class " ++ f ++ ext,
   "  {",
-  "    private int startLine;",
-  "    private int startColumn;",
   "    partial void FirstPassTranverse(ParsingContext ctx);",
   -- Instance variables
   unlines [prInstVar typ var | (typ,_,var,_) <- cs],
