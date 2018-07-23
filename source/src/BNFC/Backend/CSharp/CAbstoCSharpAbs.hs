@@ -139,8 +139,7 @@ prAbs namespace useWCF (cat, funs) = unlinesInline [
   prDataContract useWCF funs,
   "  public abstract partial class " ++ cat,
   "  {",
-  "    protected int startLine;",
-  "    protected int startColumn;",
+  "    protected LexLocation _lexLocation;",
   "    public abstract R Accept<R,A>(" ++ identifier namespace cat ++ ".Visitor<R,A> v, A arg);",
   prVisitor namespace funs,
   "  }"
@@ -268,11 +267,10 @@ prAccept namespace cat maybeOverride = unlinesInline [
 -- The constructor assigns the parameters to the corresponding instance variables.
 prConstructor :: Namespace -> CSharpAbsRule -> String
 prConstructor namespace (f,cs) = unlinesInline [
-  "    public " ++ f ++ "(" ++ conargs ++ lastSep ++ "int tokLin,int tokCol,ParsingContext ctx)",
+  "    public " ++ f ++ "(" ++ conargs ++ lastSep ++ "LexLocation loc,ParsingContext ctx)",
   "    {",
   unlinesInline ["      " ++ c ++ " = " ++ p ++ ";" | (c,p) <- zip cvs pvs],
-  "       startLine = tokLin;",
-  "       startColumn = tokCol;",
+  "       _lexLocation = loc;",
   "       FirstPassTranverse(ctx);",
   "    }"
   ]
