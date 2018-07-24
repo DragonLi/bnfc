@@ -139,7 +139,7 @@ prAbs namespace useWCF (cat, funs) = unlinesInline [
   prDataContract useWCF funs,
   "  public abstract partial class " ++ cat,
   "  {",
-  "    protected LexLocation _lexLocation;",
+  "    internal LexLocation _lexLocation;",
   "    public abstract R Accept<R,A>(" ++ identifier namespace cat ++ ".Visitor<R,A> v, A arg);",
   prVisitor namespace funs,
   "  }"
