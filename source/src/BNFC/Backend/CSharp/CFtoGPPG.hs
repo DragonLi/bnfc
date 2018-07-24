@@ -88,6 +88,7 @@ header namespace cf env = unlines [
   defineParserConstructor env,
   unlinesInline $ map (parseMethod namespace) catsWithPos,
   definedValueTag allUsingCats,
+  defineHintMethods,
   "%}"
   ]
   where
@@ -106,6 +107,38 @@ header namespace cf env = unlines [
       "   public enum SemanticValueTag{",
       "      Undefined = -1,",
       unlinesInline $ map enumNameOfCat catList,
+      "   }"
+      ]
+    defineHintMethods = unlines[
+      "   public string ScannerError { get { return Scanner.YYLastError; } }",
+      "",
+      "   public string LastErrorMsg { get { return HintAt(Scanner.yyline, Scanner.yycol); } }",
+      "",
+      "   public string HintAt(LexLocation loc){return HintAt(loc.StartLine, loc.StartColumn);}",
+      "",
+      "   public string HintAt(int tokLin, int tokCol)",
+      "   {",
+      "     var buffer = Scanner.Buffer;",
+      "     var lineStartPos = Scanner.yyLineStartPos;",
+      "     var tokPos = Scanner.yypos;",
+      "",
+      "     var sb = new StringBuilder();",
+      "     sb.Append(\"at line:\").Append(tokLin.ToString()).Append(\",column:\").AppendLine(tokCol.ToString());",
+      "     int save = buffer.Pos;",
+      "     buffer.Pos = lineStartPos;",
+      "     int ch = buffer.Read();",
+      "     while (ch != \'\\n\' && ch != ScanBuff.EndOfFile)",
+      "     {",
+      "       sb.Append(((char)ch));",
+      "       ch = buffer.Read();",
+      "     }",
+      "",
+      "     buffer.Pos = save;",
+      "     sb.AppendLine();",
+      "     var indentNum = tokPos - lineStartPos;",
+      "     for (int i = 0; i < indentNum; i++) sb.Append(\" \");",
+      "     sb.AppendLine(\"^\");",
+      "     return sb.ToString();",
       "   }"
       ]
 

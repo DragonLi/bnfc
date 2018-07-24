@@ -161,7 +161,7 @@ prCon namespace useWCF (c,(f,cs)) = unlinesInline [
   prDataContract useWCF [],
   "  public partial class " ++ f ++ ext,
   "  {",
-  "    partial void FirstPassTranverse(ParsingContext ctx);",
+  "    partial void ScanPass(ParsingContext ctx);",
   -- Instance variables
   unlines [prInstVar typ var | (typ,_,var,_) <- cs],
   prConstructor namespace (f,cs),
@@ -271,7 +271,7 @@ prConstructor namespace (f,cs) = unlinesInline [
   "    {",
   unlinesInline ["      " ++ c ++ " = " ++ p ++ ";" | (c,p) <- zip cvs pvs],
   "       _lexLocation = loc;",
-  "       FirstPassTranverse(ctx);",
+  "       ScanPass(ctx);",
   "    }"
   ]
  where
