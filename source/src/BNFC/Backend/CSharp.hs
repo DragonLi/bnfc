@@ -172,7 +172,7 @@ writeVisualStudioFiles namespace = do
       "mono gplex.exe /verbose /out:Scanner.cs " ++ namespace ++ ".l"
       ]
     sln guid = unlines [
-      "Microsoft Visual Studio Solution File, Format Version 9.00",
+      "Microsoft Visual Studio Solution File, Format Version 12.00",
       "# Visual Studio 2005",
       "Project(\"{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}\") = \"" ++ namespace ++ "\", \"" ++ namespace ++ ".csproj\", \"" ++ guid ++ "\"",
       "EndProject",
