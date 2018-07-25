@@ -247,12 +247,24 @@ prHashCode _ _ vars = unlinesInline [
 
 prList :: Namespace -> (String,Bool) -> String
 prList namespace (c,_) = unlinesInline [
-  "  public partial class " ++ c ++ " : List<" ++ identifier namespace (typename bas) ++ ">",
+  "  public partial class " ++ c ++ " : LinkedList<" ++ lstItemType ++ ">",
   "  {",
+  "    partial void ScanPass(ParsingContext ctx);",
+  "    public void AddFirst("++lstItemType++" item,ParsingContext ctx)",
+  "    {",
+  "      ScanPass(ctx);",
+  "      AddFirst(item);",
+  "    }",
+  "    public void AddLast("++lstItemType++" item,ParsingContext ctx)",
+  "    {",
+  "      ScanPass(ctx);",
+  "      AddLast(item);",
+  "    }",
   "  }"
   ]
   where
     bas = drop 4 c -- drop List
+    lstItemType = identifier namespace (typename bas)
 
 -- The standard Accept method for the Visitor pattern
 prAccept :: Namespace -> String -> Maybe String -> String

@@ -99,7 +99,7 @@ header namespace cf env = unlines [
       unlinesInline $ map defineSymbolAlias env,
       "   }"
       ]
-    defineSymbolAlias (s,r) = "     aliases[(int)Tokens."++r++"]=\"\\\""++s++"\\\"\";"
+    defineSymbolAlias (s,r) = "     aliases[(int)Tokens."++r++"]=\"\\\""++(escapeChars s)++"\\\"\";"
     allUsingCats = allCatsNorm cf
     catsWithPos = allUsingCats ++ positionCats cf
     enumNameOfCat cat = "      " ++ identCat (normCat cat) ++ "Value,"
@@ -241,9 +241,9 @@ generateAction :: Namespace -> NonTerminal -> Fun -> Bool -> [(MetaVar, Bool)]
                -> Action
 generateAction namespace nt f rev mbs
   | isNilFun f             = "$$ = new " ++ identifier namespace c ++ "();"
-  | isOneFun f             = "$$ = new " ++ identifier namespace c ++ "(); $$.Add(" ++ p_1 ++ ");"
-  | isConsFun f && not rev = "$$ = " ++ p_2 ++ "; " ++ p_2 ++ ".Insert(0, " ++ p_1 ++ ");"
-  | isConsFun f && rev     = "$$ = " ++ p_1 ++ "; " ++ p_1 ++ ".Add(" ++ p_2 ++ ");"
+  | isOneFun f             = "$$ = new " ++ identifier namespace c ++ "(); $$.AddFirst(" ++ p_1 ++ ",Context);"
+  | isConsFun f && not rev = "$$ = " ++ p_2 ++ "; " ++ p_2 ++ ".AddFirst(" ++ p_1 ++ ",Context);"
+  | isConsFun f && rev     = "$$ = " ++ p_1 ++ "; " ++ p_1 ++ ".AddLast(" ++ p_2 ++ ",Context);"
   | isCoercion f           = "$$ = " ++ p_1 ++ ";"
   | isDefinedRule f        = "$$ = " ++ f ++ "_" ++ "(" ++ concat (intersperse "," ms) ++ ");"
   | otherwise              = "$$ = new " ++ identifier namespace c ++ "(" ++ concat (intersperse "," ms) ++lastSep++ "CurrentLocationSpan,Context);"
