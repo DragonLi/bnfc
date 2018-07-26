@@ -247,7 +247,7 @@ prHashCode _ _ vars = unlinesInline [
 
 prList :: Namespace -> (String,Bool) -> String
 prList namespace (c,_) = unlinesInline [
-  "  public partial class " ++ c ++ " : LinkedList<" ++ lstItemType ++ ">",
+  "  public partial class " ++ c ++ " : SpecialList<" ++ lstItemType ++ ">",
   "  {",
   "    partial void ScanPass(ParsingContext ctx);",
   "    public void AddFirst("++lstItemType++" item,ParsingContext ctx)",

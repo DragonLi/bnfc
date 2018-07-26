@@ -377,11 +377,10 @@ prRule _nm _ _ = ""
 
 prList :: [UserDef] -> Cat -> [Rule] -> String
 prList _ _ rules = unlinesInline [
-  "      var i = 0;",
-  "      foreach (var item in p)",
+  "      for(int i=0; i < p.Count; i++)",
   "      {",
-  "        PrintInternal(item, 0);",
-  "        if(i++ < p.Count - 1)",
+  "        PrintInternal(p[i], 0);",
+  "        if(i < p.Count - 1)",
   "        {",
   "          Render(\"" ++ escapeChars sep ++ "\");",
   "        }",
@@ -456,11 +455,10 @@ shRule _ _ _ = ""
 
 shList :: [UserDef] -> Cat -> [Rule] -> String
 shList _ _ _rules = unlinesInline [
-  "      var i = 0;",
-  "      foreach (var item in p)",
+  "      for(int i=0; i < p.Count; i++)",
   "      {",
-  "        ShowInternal(item);",
-  "        if(i++ < p.Count - 1)",
+  "        ShowInternal(p[i]);",
+  "        if(i < p.Count - 1)",
   "          Render(\",\");",
   "      }"
   ]
