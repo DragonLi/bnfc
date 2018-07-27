@@ -379,7 +379,7 @@ prList :: [UserDef] -> Cat -> [Rule] -> String
 prList _ _ rules = unlinesInline [
   "      for(int i=0; i < p.Count; i++)",
   "      {",
-  "        PrintInternal(p[i], 0);",
+  "        PrintInternal(p[i], _i_);",
   "        if(i < p.Count - 1)",
   "        {",
   "          Render(\"" ++ escapeChars sep ++ "\");",
@@ -392,7 +392,7 @@ prList _ _ rules = unlinesInline [
   ]
   where
     sep = getCons rules
-    optsep = if hasOneFunc rules then "" else escapeChars sep
+    optsep = if isSeparator rules then "" else escapeChars sep
 
 prCat fnm (c, p) =
   case c of

@@ -149,3 +149,14 @@ numProps env ((Left f) : fs) =
  where
    f' = propertyName (identCat (normCat f))
 
+isSeparator :: [Rule] -> Bool
+isSeparator rs = 
+  case find (isOneFun . funRule) rs of
+    Just (Rule _ _ cats) -> hasNoRight cats
+    Nothing              -> False
+  where
+    hasNoRight [] = True
+    hasNoRight (Left _ : xs)  = hasNoRight xs
+    hasNoRight (Right _ : xs) = False
+
+   
