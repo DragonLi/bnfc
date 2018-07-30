@@ -148,7 +148,7 @@ prAbs namespace useWCF (cat, funs) = unlinesInline [
 prVisitor :: Namespace -> [String] -> String
 prVisitor namespace funs = unlinesInline
   [ "    "
-  , "    public interface Visitor<R,A>"
+  , "    public partial interface Visitor<R,A>"
   , "    {"
   , unlinesInline (map prVisitFun funs)
   , "    }"
