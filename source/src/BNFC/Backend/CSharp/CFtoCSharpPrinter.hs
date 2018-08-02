@@ -353,8 +353,10 @@ prData namespace user (cat, rules)
     ]
   -- not a list
   | otherwise = unlinesInline [
+    "    static partial void PrintExt("++ identifier namespace (identCat (normCat cat)) ++ " p, int _i_);",
     "    private static void PrintInternal(" ++ identifier namespace (identCat (normCat cat)) ++ " p, int _i_)",
     "    {",
+    "       PrintExt(p, _i_);",
     -- first rule starts with "if", the rest of them start with "else if".
     -- this isn't very pretty, but does the job and produces nice code.
     prRule namespace Nothing firstRule,
@@ -428,8 +430,10 @@ shData namespace user (cat, rules)
     "    }"
     ]
   | otherwise = unlinesInline [
+    "    static partial void ShowExt(" ++ identifier namespace (identCat (normCat cat)) ++ " p);",
     "    private static void ShowInternal(" ++ identifier namespace (identCat (normCat cat)) ++ " p)",
     "    {",
+    "      ShowExt(p);",
     -- first rule starts with "if", the rest of them start with "else if".
     -- this isn't very pretty, but does the job and produces nice code.
     shRule namespace Nothing firstRule,

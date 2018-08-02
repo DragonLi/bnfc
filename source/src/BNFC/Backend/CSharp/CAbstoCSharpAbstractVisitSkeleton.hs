@@ -74,7 +74,7 @@ cabs2csharpAbstractVisitSkeleton namespace cabs = unlines [
   ]
 
 prBasic namespace c = unlinesInline [
-  "  public abstract class Abstract" ++ c ++ "Visitor<R,A> : " ++ identifier namespace c ++ ".Visitor<R,A>",
+  "  public abstract partial class Abstract" ++ c ++ "Visitor<R,A> : " ++ identifier namespace c ++ ".Visitor<R,A>",
   "  {",
   "    public abstract R Visit(" ++ identifier namespace (typename c) +++ varname c ++ ", A arg);",
   "  }"
@@ -82,7 +82,7 @@ prBasic namespace c = unlinesInline [
 
 prCon :: Namespace -> (String, [CAbsRule]) -> String
 prCon namespace (c,fs) = unlinesInline [
-  "  public abstract class Abstract" ++ c ++ "Visitor<R,A> : " ++ identifier namespace c ++ ".Visitor<R,A>",
+  "  public abstract partial class Abstract" ++ c ++ "Visitor<R,A> : " ++ identifier namespace c ++ ".Visitor<R,A>",
   "  {",
   unlinesInlineMap (prVisit namespace) fs,
   "  }"
